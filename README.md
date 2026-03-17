@@ -25,3 +25,4 @@ Ouvre `http://localhost:3000`.
 - La restriction “vidéos Extia uniquement” est vérifiée via YouTube oEmbed (nom de chaîne / titre).
 - La transcription est “brute” (elle peut contenir des erreurs), l’IA s’appuie dessus + le contexte de marque Extia.
 
+# extia-com
