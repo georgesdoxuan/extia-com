@@ -230,12 +230,6 @@ async function generateWithGemini(input: {
     const preferred = [
       process.env.GEMINI_MODEL,
       "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-flash-latest",
-      "gemini-pro-latest",
-      "gemini-2.5-pro",
-      "gemini-2.0-flash-lite",
-      "gemini-flash-lite-latest",
     ]
       .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
       .map(normalizeModelName);
