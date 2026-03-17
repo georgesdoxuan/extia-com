@@ -176,6 +176,17 @@ function MainWorkspace() {
   const [error, setError] = React.useState<string | null>(null);
   const processAbortRef = React.useRef<AbortController | null>(null);
 
+  async function safeJson<T>(res: Response): Promise<T> {
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const text = await res.text().catch(() => "");
+      throw new Error(
+        `API indisponible (HTTP ${res.status}). ${text ? "Réponse non-JSON reçue (probable timeout Netlify)." : ""}`.trim(),
+      );
+    }
+    return (await res.json()) as T;
+  }
+
   async function run(u: string) {
     const trimmed = u.trim();
     if (!trimmed) return;
@@ -192,7 +203,7 @@ function MainWorkspace() {
         body: JSON.stringify({ url: trimmed }),
         signal: controller.signal,
       });
-      const json = (await res.json()) as ApiResponse;
+      const json = await safeJson<ApiResponse>(res);
       if (!res.ok || json.error) throw new Error(json.error || `Erreur HTTP ${res.status}`);
       setData(json);
     } catch (e) {
@@ -238,7 +249,7 @@ function MainWorkspace() {
           previous: { seoArticle: data.seoArticle || "" },
         }),
       });
-      const json = (await res.json()) as { error?: string; seoArticle?: string };
+      const json = await safeJson<{ error?: string; seoArticle?: string }>(res);
       if (!res.ok || json.error) throw new Error(json.error || `Erreur HTTP ${res.status}`);
       setData((prev) => (prev ? { ...prev, seoArticle: json.seoArticle || prev.seoArticle } : prev));
     } catch (e) {
@@ -269,10 +280,10 @@ function MainWorkspace() {
           },
         }),
       });
-      const json = (await res.json()) as {
+      const json = await safeJson<{
         error?: string;
         linkedinCarousel?: { slides: { title: string; bullets: string[] }[]; caption: string; hashtags: string[] };
-      };
+      }>(res);
       if (!res.ok || json.error) throw new Error(json.error || `Erreur HTTP ${res.status}`);
       setData((prev) => (prev ? { ...prev, linkedinCarousel: json.linkedinCarousel || prev.linkedinCarousel } : prev));
     } catch (e) {

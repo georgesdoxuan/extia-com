@@ -46,7 +46,7 @@ function modelConfig(genAI: GoogleGenerativeAI, model: string, forceJson: boolea
     model,
     generationConfig: {
       temperature: 0.7,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 2048,
       ...(forceJson ? { responseMimeType: "application/json" } : {}),
     },
   });
@@ -259,6 +259,15 @@ function normalizeSeoArticle(article: string) {
   return formatted.trim();
 }
 
+function condenseTranscriptForAi(transcript: string) {
+  const t = transcript.replace(/\s+/g, " ").trim();
+  const maxChars = 18000;
+  if (t.length <= maxChars) return t;
+  const head = t.slice(0, 9000);
+  const tail = t.slice(-6000);
+  return [head, "\n\n[... transcript tronqué pour performance (Netlify timeout) ...]\n\n", tail].join("");
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as RegenerateRequest;
@@ -306,13 +315,13 @@ Source:
 - Chaîne: ${video.channelName}
 
 Transcript brut:
-${transcript}
+${condenseTranscriptForAi(transcript)}
 
 Article précédent (NE PAS REPRENDRE les mêmes formulations/angles; propose un autre angle):
 ${previousSeo}
 
 Génère STRICTEMENT un JSON valide (pas de markdown) avec:
-{ "seoArticle": "texte uniquement (pas HTML, pas Markdown, pas ##/###, pas **). Titres en casse normale (pas en MAJUSCULES). Paragraphes de 2 à 4 phrases. + 5 FAQs. + CTA vers extia.fr." }
+{ "seoArticle": "texte uniquement (pas HTML, pas Markdown, pas ##/###, pas **). Longueur cible 700–1100 mots. Titres en casse normale. Paragraphes de 2 à 4 phrases. + 5 FAQs. + CTA vers extia.fr." }
 `.trim()
         : `
 Tu écris des contenus LinkedIn pour Extia.
@@ -331,7 +340,7 @@ Source:
 - Chaîne: ${video.channelName}
 
 Transcript brut:
-${transcript}
+${condenseTranscriptForAi(transcript)}
 
 Post précédent (NE PAS REPRENDRE les mêmes formulations/structure; propose une variante):
 Caption précédent:

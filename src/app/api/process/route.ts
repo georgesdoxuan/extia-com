@@ -172,7 +172,7 @@ async function generateWithGemini(input: {
       model,
       generationConfig: {
         temperature: 0.6,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 2048,
         ...(forceJson ? { responseMimeType: "application/json" } : {}),
       },
     });
@@ -457,6 +457,19 @@ async function generateWithGemini(input: {
     return formatted.trim();
   }
 
+  function condenseTranscriptForAi(transcript: string) {
+    const t = transcript.replace(/\s+/g, " ").trim();
+    const maxChars = 18000;
+    if (t.length <= maxChars) return t;
+    const head = t.slice(0, 9000);
+    const tail = t.slice(-6000);
+    return [
+      head,
+      "\n\n[... transcript tronqué pour performance (Netlify timeout) ...]\n\n",
+      tail,
+    ].join("");
+  }
+
   const prompt = `
 Tu es un expert en content marketing B2B (FR) pour Extia.
 
@@ -472,7 +485,7 @@ Source:
 - Chaîne: ${input.channelName}
 
 Transcript brut (peut contenir des erreurs):
-${input.transcript}
+${condenseTranscriptForAi(input.transcript)}
 
 Génère STRICTEMENT un JSON valide (pas de markdown), avec ce schéma:
 {
@@ -490,7 +503,7 @@ Génère STRICTEMENT un JSON valide (pas de markdown), avec ce schéma:
 
 Contraintes:
 - 5 idées clés: courtes, actionnables, fidèles au transcript.
-- Article SEO: texte uniquement (pas HTML, pas Markdown). Titres en casse normale (PAS EN MAJUSCULES). Paragraphes de 2 à 4 phrases (éviter 1 phrase par paragraphe). Ajoute 5 FAQs en fin d’article.
+- Article SEO: texte uniquement (pas HTML, pas Markdown). Longueur cible: 700–1100 mots. Titres en casse normale (pas en majuscules). Paragraphes de 2 à 4 phrases. Ajoute 5 FAQs en fin d’article.
 - Carousel LinkedIn: 7 à 10 slides, style percutant, phrases courtes, sans jargon inutile.
 - Caption LinkedIn + hashtags: respecter le guide de style LinkedIn Extia ci-dessus (structure, emojis modérés, CTA clair, hashtags en fin).
 - Ne pas inventer de faits (chiffres, clients, labels) hors transcript + contexte.
