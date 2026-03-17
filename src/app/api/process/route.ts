@@ -9,6 +9,34 @@ type ProcessRequest = {
   url?: string;
 };
 
+function extractRetryAfterSeconds(message: string): number | null {
+  const m1 = message.match(/Please retry in\s+(\d+(?:\.\d+)?)s/i);
+  if (m1?.[1]) return Math.max(1, Math.round(Number(m1[1])));
+  const m2 = message.match(/retryDelay\"\s*:\s*\"(\d+)s\"/i);
+  if (m2?.[1]) return Math.max(1, Number(m2[1]));
+  return null;
+}
+
+function throwUserFacingGeminiError(lastError: unknown, candidates: string[]): never {
+  const msg = lastError instanceof Error ? lastError.message : String(lastError);
+  const lowered = msg.toLowerCase();
+  const isQuota =
+    lowered.includes("429") ||
+    lowered.includes("too many requests") ||
+    lowered.includes("quota exceeded") ||
+    lowered.includes("rate limit");
+
+  if (isQuota) {
+    const retry = extractRetryAfterSeconds(msg);
+    const hint = retry ? `Réessaie dans ~${retry}s.` : "Réessaie dans une minute.";
+    throw new Error(
+      `Limite Gemini atteinte (quota). ${hint} Si ça revient souvent, augmente le quota/active la facturation côté Google AI.`,
+    );
+  }
+
+  throw new Error(`Erreur Gemini (modèles testés: ${candidates.join(", ")}). ${msg}`.trim());
+}
+
 function extractYouTubeVideoId(input: string): string | null {
   try {
     const url = new URL(input);
@@ -253,8 +281,7 @@ async function generateWithGemini(input: {
       }
     }
 
-    const msg = lastError instanceof Error ? lastError.message : String(lastError);
-    throw new Error(`Erreur Gemini (modèles testés: ${candidates.join(", ")}). ${msg}`.trim());
+    throwUserFacingGeminiError(lastError, candidates);
   }
 
   function htmlToMarkdownish(input: string) {

@@ -54,6 +54,34 @@ function modelConfig(genAI: GoogleGenerativeAI, model: string, forceJson: boolea
   });
 }
 
+function extractRetryAfterSeconds(message: string): number | null {
+  const m1 = message.match(/Please retry in\s+(\d+(?:\.\d+)?)s/i);
+  if (m1?.[1]) return Math.max(1, Math.round(Number(m1[1])));
+  const m2 = message.match(/retryDelay\"\s*:\s*\"(\d+)s\"/i);
+  if (m2?.[1]) return Math.max(1, Number(m2[1]));
+  return null;
+}
+
+function throwUserFacingGeminiError(lastError: unknown): never {
+  const msg = lastError instanceof Error ? lastError.message : String(lastError);
+  const lowered = msg.toLowerCase();
+  const isQuota =
+    lowered.includes("429") ||
+    lowered.includes("too many requests") ||
+    lowered.includes("quota exceeded") ||
+    lowered.includes("rate limit");
+
+  if (isQuota) {
+    const retry = extractRetryAfterSeconds(msg);
+    const hint = retry ? `Réessaie dans ~${retry}s.` : "Réessaie dans une minute.";
+    throw new Error(
+      `Limite Gemini atteinte (quota). ${hint} Si ça revient souvent, augmente le quota/active la facturation côté Google AI.`,
+    );
+  }
+
+  throw new Error(`Erreur Gemini. ${msg}`.trim());
+}
+
 async function generateJson(apiKey: string, prompt: string) {
   const genAI = new GoogleGenerativeAI(apiKey);
   const available = (await listAvailableModelNames(apiKey)).map(normalizeModelName);
@@ -98,8 +126,7 @@ async function generateJson(apiKey: string, prompt: string) {
     }
   }
 
-  const msg = lastError instanceof Error ? lastError.message : String(lastError);
-  throw new Error(`Erreur Gemini. ${msg}`.trim());
+  throwUserFacingGeminiError(lastError);
 }
 
 function htmlToMarkdownish(input: string) {

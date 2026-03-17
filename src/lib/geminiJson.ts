@@ -4,6 +4,37 @@ function normalizeModelName(name: string) {
   return name.replace(/^models\//, "").trim();
 }
 
+function extractRetryAfterSeconds(message: string): number | null {
+  // Examples:
+  // - "Please retry in 59.31s."
+  // - "\"retryDelay\":\"59s\""
+  const m1 = message.match(/Please retry in\s+(\d+(?:\.\d+)?)s/i);
+  if (m1?.[1]) return Math.max(1, Math.round(Number(m1[1])));
+  const m2 = message.match(/retryDelay\"\s*:\s*\"(\d+)s\"/i);
+  if (m2?.[1]) return Math.max(1, Number(m2[1]));
+  return null;
+}
+
+function asUserFacingGeminiError(lastError: unknown, candidates: string[]): Error {
+  const msg = lastError instanceof Error ? lastError.message : String(lastError);
+  const lowered = msg.toLowerCase();
+  const isQuota =
+    lowered.includes("429") ||
+    lowered.includes("too many requests") ||
+    lowered.includes("quota exceeded") ||
+    lowered.includes("rate limit");
+
+  if (isQuota) {
+    const retry = extractRetryAfterSeconds(msg);
+    const hint = retry ? `Réessaie dans ~${retry}s.` : "Réessaie dans une minute.";
+    return new Error(
+      `Limite Gemini atteinte (quota). ${hint} Si ça revient souvent, augmente le quota/active la facturation côté Google AI.`,
+    );
+  }
+
+  return new Error(`Erreur Gemini (modèles testés: ${candidates.join(", ")}). ${msg}`.trim());
+}
+
 function extractFirstJsonObject(text: string): string | null {
   const start = text.indexOf("{");
   if (start === -1) return null;
@@ -95,6 +126,5 @@ export async function generateGeminiJson(prompt: string, maxOutputTokens = 2048)
     }
   }
 
-  const msg = lastError instanceof Error ? lastError.message : String(lastError);
-  throw new Error(`Erreur Gemini (modèles testés: ${candidates.join(", ")}). ${msg}`.trim());
+  throw asUserFacingGeminiError(lastError, candidates);
 }
