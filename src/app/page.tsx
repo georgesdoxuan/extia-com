@@ -152,6 +152,21 @@ type ApiResponse = {
   linkedinCarousel?: { slides: { title: string; bullets: string[] }[]; caption: string; hashtags: string[] };
 };
 
+function splitSeoTitleAndBody(seoArticle: string): { title?: string; body: string } {
+  const raw = seoArticle.trim();
+  if (!raw) return { body: "" };
+  const lines = raw.split("\n").map((l) => l.trim());
+  const first = lines.find((l) => l.length > 0) || "";
+  const secondIdx = lines.findIndex((l, idx) => idx > 0 && l.length > 0);
+
+  // Heuristic: treat the first non-empty line as title if it's not too long.
+  const looksLikeTitle = first.length >= 8 && first.length <= 110;
+  if (!looksLikeTitle) return { body: raw };
+
+  const bodyStart = secondIdx === -1 ? "" : lines.slice(secondIdx).join("\n").trim();
+  return { title: first, body: bodyStart || raw };
+}
+
 function MainWorkspace() {
   const [url, setUrl] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -407,26 +422,36 @@ function MainWorkspace() {
             title="Article SEO"
             subtitle="Texte long · prêt à éditer"
           >
-            <div className="flex items-center justify-between gap-3">
-              <CopyBtn text={data.seoArticle} />
-              <SmallActionButton onClick={() => void regenerateSeo()} disabled={regenSeoLoading || loading}>
-                {regenSeoLoading ? (
-                  "Regénération…"
-                ) : (
-                  <>
-                    <span className="text-sky-700/90">
-                      <IconAI />
-                    </span>
-                    Regénérer
-                  </>
-                )}
-              </SmallActionButton>
-            </div>
-            <textarea
-              readOnly
-              value={data.seoArticle}
-              className="mt-3 h-72 w-full resize-y rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm leading-relaxed text-gray-800"
-            />
+            {(() => {
+              const { title: seoTitle, body: seoBody } = splitSeoTitleAndBody(data.seoArticle);
+              return (
+                <>
+                  {seoTitle ? (
+                    <h4 className="mt-2 text-2xl font-extrabold tracking-tight text-gray-900">{seoTitle}</h4>
+                  ) : null}
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <CopyBtn text={seoBody || data.seoArticle} />
+                    <SmallActionButton onClick={() => void regenerateSeo()} disabled={regenSeoLoading || loading}>
+                      {regenSeoLoading ? (
+                        "Regénération…"
+                      ) : (
+                        <>
+                          <span className="text-sky-700/90">
+                            <IconAI />
+                          </span>
+                          Regénérer
+                        </>
+                      )}
+                    </SmallActionButton>
+                  </div>
+                  <textarea
+                    readOnly
+                    value={seoBody || data.seoArticle}
+                    className="mt-3 h-72 w-full resize-y rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm leading-relaxed text-gray-800"
+                  />
+                </>
+              );
+            })()}
           </ResultCard>
         ) : null}
 
