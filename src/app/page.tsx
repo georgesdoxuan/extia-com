@@ -167,6 +167,41 @@ function splitSeoTitleAndBody(seoArticle: string): { title?: string; body: strin
   return { title: first, body: bodyStart || raw };
 }
 
+/** Libellés d’attente (sans jargon technique) selon l’étape en cours. */
+function loadingWaitPhrase(step: string | null): { title: string; detail: string } {
+  if (!step) {
+    return {
+      title: "Un instant…",
+      detail: "On prépare la suite : transcription, puis idées, article et LinkedIn.",
+    };
+  }
+  if (step.startsWith("Transcription")) {
+    return {
+      title: "On capte la vidéo",
+      detail: "Extraction du texte parlé — merci de patienter quelques secondes.",
+    };
+  }
+  if (step.startsWith("Idées")) {
+    return {
+      title: "On creuse le contenu",
+      detail: "Repérage des idées fortes à reprendre dans tes supports.",
+    };
+  }
+  if (step.startsWith("Article")) {
+    return {
+      title: "Rédaction en cours",
+      detail: "L’article SEO prend forme, ça peut prendre un peu plus de temps.",
+    };
+  }
+  if (step.startsWith("LinkedIn")) {
+    return {
+      title: "Dernière ligne droite",
+      detail: "Slides, légende et hashtags pour ton post LinkedIn.",
+    };
+  }
+  return { title: "Presque fini", detail: "Encore un petit effort…" };
+}
+
 function MainWorkspace() {
   const [url, setUrl] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -396,7 +431,7 @@ function MainWorkspace() {
                   className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-transform duration-150 ease-out hover:scale-[1.03] hover:bg-sky-700 active:scale-[1.01] disabled:opacity-50 sm:w-auto"
                 >
                   {loading ? (
-                    progressLabel || "Traitement…"
+                    loadingWaitPhrase(progressLabel).title
                   ) : (
                     <>
                       <span className="text-white/95">
@@ -619,6 +654,7 @@ function MainWorkspace() {
 }
 
 function LoadingCard({ onStop, step }: { onStop: () => void; step: string | null }) {
+  const { title, detail } = loadingWaitPhrase(step);
   return (
     <div className="mb-4 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
       <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
@@ -635,18 +671,17 @@ function LoadingCard({ onStop, step }: { onStop: () => void; step: string | null
             </svg>
           </span>
           <div>
-            <p className="text-sm font-semibold text-gray-900">Génération en cours…</p>
-            <p className="text-xs text-gray-500">
-              {step
-                ? `${step} — plusieurs étapes courtes pour éviter les timeouts Netlify.`
-                : "Transcription puis IA par étapes (idées, SEO, LinkedIn)."}
-            </p>
+            <p className="text-sm font-semibold text-gray-900">{title}</p>
+            <p className="text-xs text-gray-500">{detail}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <div className="hidden max-w-[140px] items-center gap-2 truncate text-xs font-medium text-sky-700 sm:flex" title={step || ""}>
+          <div
+            className="hidden max-w-[180px] items-center gap-2 truncate text-xs font-medium text-sky-700 sm:flex"
+            title={detail}
+          >
             <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-sky-400" />
-            {step || "…"}
+            {title}
           </div>
           <button
             type="button"
