@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { EXTIA_CONTEXT } from "@/lib/extiaContext";
 import { EXTIA_LINKEDIN_STYLE_GUIDE } from "@/lib/linkedinStyleGuide";
 import { LINKEDIN_CAROUSEL_SLIDES_PROMPT, parseLinkedinSlides } from "@/lib/linkedinCarouselSlides";
+import { SEO_ARTICLE_STRUCTURE_FR } from "@/lib/seoArticlePrompt";
 
 type RegenerateRequest = {
   kind?: "seo" | "linkedin";
@@ -308,6 +309,8 @@ Tu écris un article SEO en français pour Extia.
 Contexte Extia:
 ${EXTIA_CONTEXT}
 
+${SEO_ARTICLE_STRUCTURE_FR}
+
 ${antiHallucination}
 
 Source:
@@ -322,7 +325,8 @@ Article précédent (NE PAS REPRENDRE les mêmes formulations/angles; propose un
 ${previousSeo}
 
 Génère STRICTEMENT un JSON valide (pas de markdown) avec:
-{ "seoArticle": "texte uniquement (pas HTML, pas Markdown, pas ##/###, pas **). Longueur cible 700–1100 mots. Titres en casse normale. Paragraphes de 2 à 4 phrases. + 5 FAQs. + CTA vers extia.fr." }
+{ "seoArticle": "…" }
+(le texte complet respectant la structure : titre ligne 1, chapeau, sections en questions, pas de puces, 450–700 mots environ)
 `.trim()
         : `
 Tu écris des contenus LinkedIn pour Extia.
@@ -372,7 +376,9 @@ Génère STRICTEMENT un JSON valide (pas de markdown) avec:
 
     if (kind === "seo") {
       const seo = typeof parsed?.seoArticle === "string" ? normalizeSeoArticle(parsed.seoArticle) : "";
-      if (!seo) return NextResponse.json({ error: "Réponse IA incomplète (seoArticle manquant)." }, { status: 500 });
+      if (!seo || seo.length < 1800) {
+        return NextResponse.json({ error: "Réponse IA incomplète (article SEO manquant ou trop court)." }, { status: 500 });
+      }
       return NextResponse.json({ seoArticle: seo });
     }
 

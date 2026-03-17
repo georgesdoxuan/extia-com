@@ -5,7 +5,7 @@ Hello
 Web app: tu colles (ou glisses-déposes) une URL YouTube (vidéo Extia), l’app récupère la transcription via `youtube-transcript.io`, puis génère:
 
 - 5 idées clés
-- 1 article SEO
+- 1 article SEO (format court ~450–700 mots : titre, chapeau, sections en questions, sans puces)
 - 1 carousel LinkedIn (cover + 5–6 pages contenu + slide CTA, caption + hashtags)
 
 ## Getting Started

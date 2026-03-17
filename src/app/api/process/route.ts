@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { EXTIA_CONTEXT } from "@/lib/extiaContext";
 import { EXTIA_LINKEDIN_STYLE_GUIDE } from "@/lib/linkedinStyleGuide";
 import { LINKEDIN_CAROUSEL_SLIDES_PROMPT, parseLinkedinSlides } from "@/lib/linkedinCarouselSlides";
+import { SEO_ARTICLE_STRUCTURE_FR } from "@/lib/seoArticlePrompt";
 
 type ProcessRequest = {
   url?: string;
@@ -490,10 +491,12 @@ Source:
 Transcript brut (peut contenir des erreurs):
 ${condenseTranscriptForAi(input.transcript)}
 
+${SEO_ARTICLE_STRUCTURE_FR}
+
 Génère STRICTEMENT un JSON valide (pas de markdown), avec ce schéma:
 {
   "ideas": ["...", "...", "...", "...", "..."],
-  "seoArticle": "article en français en TEXTE (pas de HTML, pas de Markdown). Utilise des titres en texte simple (sans ##/###), intro, conclusion, CTA vers extia.fr.",
+  "seoArticle": "texte complet : titre ligne 1 puis structure ci-dessus (pas HTML/Markdown, pas puces)",
   "linkedinCarousel": {
     "slides": [
       { "type": "cover", "title": "…", "bullets": [] },
@@ -508,7 +511,7 @@ Génère STRICTEMENT un JSON valide (pas de markdown), avec ce schéma:
 
 Contraintes:
 - 5 idées clés: courtes, actionnables, fidèles au transcript.
-- Article SEO: texte uniquement (pas HTML, pas Markdown). Longueur cible: 700–1100 mots. Titres en casse normale (pas en majuscules). Paragraphes de 2 à 4 phrases. Ajoute 5 FAQs en fin d’article.
+- Article SEO: respecter SEO_ARTICLE_STRUCTURE_FR (450–700 mots, questions de section, pas de puces).
 - Carousel LinkedIn: 1 cover + 5 ou 6 slides contenu + 1 CTA (voir structure ci-dessus).
 - Caption LinkedIn + hashtags: respecter le guide de style LinkedIn Extia ci-dessus (structure, emojis modérés, CTA clair, hashtags en fin).
 - Ne pas inventer de faits (chiffres, clients, labels) hors transcript + contexte.
@@ -533,8 +536,8 @@ Contraintes:
     : [];
 
   const normSlides = parseLinkedinSlides(slides);
-  if (ideas.length !== 5 || !seoArticle || !normSlides || !caption) {
-    throw new Error("Réponse IA incomplète (champs manquants ou carousel invalide).");
+  if (ideas.length !== 5 || !seoArticle || seoArticle.length < 1800 || !normSlides || !caption) {
+    throw new Error("Réponse IA incomplète (champs manquants, article trop court ou carousel invalide).");
   }
 
   return {

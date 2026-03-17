@@ -3,6 +3,7 @@ import { EXTIA_CONTEXT } from "@/lib/extiaContext";
 import { EXTIA_LINKEDIN_STYLE_GUIDE } from "@/lib/linkedinStyleGuide";
 import { condenseTranscriptForAi } from "@/lib/condenseTranscript";
 import { normalizeSeoArticle } from "@/lib/seoArticleNormalize";
+import { SEO_ARTICLE_STRUCTURE_FR } from "@/lib/seoArticlePrompt";
 import { generateGeminiJson } from "@/lib/geminiJson";
 import { LINKEDIN_CAROUSEL_SLIDES_PROMPT, parseLinkedinSlides } from "@/lib/linkedinCarouselSlides";
 
@@ -80,21 +81,22 @@ Tu es un expert en content marketing B2B (FR) pour Extia.
 Contexte Extia:
 ${EXTIA_CONTEXT}
 
+${SEO_ARTICLE_STRUCTURE_FR}
+
 ${source}
 
 Génère STRICTEMENT un JSON valide (pas de markdown), schéma:
 { "seoArticle": "..." }
 
-L'article doit être en français, en TEXTE (pas HTML, pas Markdown). Titres en texte simple (sans ##/###), intro, conclusion, CTA vers extia.fr.
-Longueur cible: 700–1100 mots. Paragraphes de 2 à 4 phrases. Titres en casse normale (pas en majuscules). Ajoute 5 FAQs en fin d’article.
+L’article = le texte complet selon la structure ci-dessus (titre en première ligne du contenu).
 Ne pas inventer de faits hors transcript + contexte.
 `.trim();
 
-      const text = await generateGeminiJson(prompt, 4096);
+      const text = await generateGeminiJson(prompt, 3072);
       const parsed = JSON.parse(text) as { seoArticle?: unknown };
       const raw = typeof parsed?.seoArticle === "string" ? parsed.seoArticle : "";
       const seoArticle = normalizeSeoArticle(raw);
-      if (!seoArticle || seoArticle.length < 400) {
+      if (!seoArticle || seoArticle.length < 1800) {
         return NextResponse.json({ error: "Réponse IA incomplète (article SEO trop court)." }, { status: 502 });
       }
       return NextResponse.json({ seoArticle });
