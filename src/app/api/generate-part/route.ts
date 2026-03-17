@@ -1,0 +1,163 @@
+import { NextResponse } from "next/server";
+import { EXTIA_CONTEXT } from "@/lib/extiaContext";
+import { EXTIA_LINKEDIN_STYLE_GUIDE } from "@/lib/linkedinStyleGuide";
+import { condenseTranscriptForAi } from "@/lib/condenseTranscript";
+import { normalizeSeoArticle } from "@/lib/seoArticleNormalize";
+import { generateGeminiJson } from "@/lib/geminiJson";
+
+type VideoMeta = { url: string; title: string; channelName: string };
+type Body = {
+  part?: "ideas" | "seo" | "linkedin";
+  video?: VideoMeta;
+  transcript?: string;
+};
+
+function baseSource(video: VideoMeta, condensed: string) {
+  return `
+Source:
+- URL: ${video.url}
+- Titre: ${video.title}
+- Chaîne: ${video.channelName}
+
+Transcript brut (peut contenir des erreurs):
+${condensed}
+`.trim();
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json()) as Body;
+    const part = body?.part;
+    const video = body?.video;
+    const transcript = typeof body?.transcript === "string" ? body.transcript : "";
+
+    if (part !== "ideas" && part !== "seo" && part !== "linkedin") {
+      return NextResponse.json({ error: "part invalide (ideas | seo | linkedin)." }, { status: 400 });
+    }
+    if (!video?.url || !video.title) {
+      return NextResponse.json({ error: "Métadonnées vidéo manquantes." }, { status: 400 });
+    }
+    if (!transcript.trim()) {
+      return NextResponse.json({ error: "Transcript manquant." }, { status: 400 });
+    }
+
+    const condensed = condenseTranscriptForAi(transcript);
+    const source = baseSource(video, condensed);
+
+    if (part === "ideas") {
+      const prompt = `
+Tu es un expert en content marketing B2B (FR) pour Extia.
+
+Contexte Extia:
+${EXTIA_CONTEXT}
+
+${source}
+
+Génère STRICTEMENT un JSON valide (pas de markdown), schéma:
+{ "ideas": ["...", "...", "...", "...", "..."] }
+
+Contraintes:
+- Exactement 5 idées clés, courtes, actionnables, fidèles au transcript.
+- Ne pas inventer de faits (chiffres, clients, labels) hors transcript + contexte.
+`.trim();
+
+      const text = await generateGeminiJson(prompt, 1024);
+      const parsed = JSON.parse(text) as { ideas?: unknown };
+      const ideas = Array.isArray(parsed?.ideas)
+        ? parsed.ideas.filter((x): x is string => typeof x === "string")
+        : [];
+      if (ideas.length !== 5) {
+        return NextResponse.json({ error: "Réponse IA incomplète (5 idées attendues)." }, { status: 502 });
+      }
+      return NextResponse.json({ ideas: ideas.slice(0, 5) });
+    }
+
+    if (part === "seo") {
+      const prompt = `
+Tu es un expert en content marketing B2B (FR) pour Extia.
+
+Contexte Extia:
+${EXTIA_CONTEXT}
+
+${source}
+
+Génère STRICTEMENT un JSON valide (pas de markdown), schéma:
+{ "seoArticle": "..." }
+
+L'article doit être en français, en TEXTE (pas HTML, pas Markdown). Titres en texte simple (sans ##/###), intro, conclusion, CTA vers extia.fr.
+Longueur cible: 700–1100 mots. Paragraphes de 2 à 4 phrases. Titres en casse normale (pas en majuscules). Ajoute 5 FAQs en fin d’article.
+Ne pas inventer de faits hors transcript + contexte.
+`.trim();
+
+      const text = await generateGeminiJson(prompt, 4096);
+      const parsed = JSON.parse(text) as { seoArticle?: unknown };
+      const raw = typeof parsed?.seoArticle === "string" ? parsed.seoArticle : "";
+      const seoArticle = normalizeSeoArticle(raw);
+      if (!seoArticle || seoArticle.length < 400) {
+        return NextResponse.json({ error: "Réponse IA incomplète (article SEO trop court)." }, { status: 502 });
+      }
+      return NextResponse.json({ seoArticle });
+    }
+
+    const prompt = `
+Tu es un expert en content marketing B2B (FR) pour Extia.
+
+Contexte Extia:
+${EXTIA_CONTEXT}
+
+Style LinkedIn Extia (caption + carousel):
+${EXTIA_LINKEDIN_STYLE_GUIDE}
+
+${source}
+
+Génère STRICTEMENT un JSON valide (pas de markdown), schéma:
+{
+  "linkedinCarousel": {
+    "slides": [ { "title": "...", "bullets": ["...", "..."] } ],
+    "caption": "...",
+    "hashtags": ["#...", "#..."]
+  }
+}
+
+Contraintes:
+- 7 à 10 slides, style percutant, phrases courtes.
+- Caption + hashtags: respecter le guide de style LinkedIn Extia (emojis modérés, CTA clair, hashtags en fin).
+- Ne pas inventer de faits hors transcript + contexte.
+`.trim();
+
+    const text = await generateGeminiJson(prompt, 2048);
+    const parsed = JSON.parse(text) as { linkedinCarousel?: unknown };
+    const lc = parsed?.linkedinCarousel as Record<string, unknown> | undefined;
+    const slides = Array.isArray(lc?.slides) ? lc.slides : [];
+    const caption = typeof lc?.caption === "string" ? lc.caption : "";
+    const hashtags = Array.isArray(lc?.hashtags)
+      ? lc.hashtags.filter((x): x is string => typeof x === "string")
+      : [];
+
+    const normalizedSlides = slides
+      .map((s: unknown) => {
+        const o = s as Record<string, unknown>;
+        return {
+          title: typeof o?.title === "string" ? o.title : "",
+          bullets: Array.isArray(o?.bullets) ? o.bullets.filter((b): b is string => typeof b === "string") : [],
+        };
+      })
+      .filter((s) => s.title && s.bullets.length > 0)
+      .slice(0, 10);
+
+    if (normalizedSlides.length < 5 || !caption) {
+      return NextResponse.json({ error: "Réponse IA incomplète (carousel LinkedIn)." }, { status: 502 });
+    }
+
+    return NextResponse.json({
+      linkedinCarousel: {
+        slides: normalizedSlides,
+        caption,
+        hashtags,
+      },
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Erreur inconnue.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

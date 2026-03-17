@@ -26,5 +26,6 @@ Ouvre `http://localhost:3000`.
 
 - La restriction “vidéos Extia uniquement” est vérifiée via YouTube oEmbed (nom de chaîne / titre).
 - La transcription est “brute” (elle peut contenir des erreurs), l’IA s’appuie dessus + le contexte de marque Extia.
+- **Netlify / timeouts** : le flux principal enchaîne `POST /api/transcript` puis trois appels `POST /api/generate-part` (`ideas`, `seo`, `linkedin`) pour rester sous la limite de durée d’une fonction serverless (~26–30 s) par requête.
 
 # extia-com

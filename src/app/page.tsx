@@ -170,6 +170,7 @@ function splitSeoTitleAndBody(seoArticle: string): { title?: string; body: strin
 function MainWorkspace() {
   const [url, setUrl] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [progressLabel, setProgressLabel] = React.useState<string | null>(null);
   const [regenSeoLoading, setRegenSeoLoading] = React.useState(false);
   const [regenLinkedinLoading, setRegenLinkedinLoading] = React.useState(false);
   const [data, setData] = React.useState<ApiResponse | null>(null);
@@ -187,6 +188,12 @@ function MainWorkspace() {
     return (await res.json()) as T;
   }
 
+  const videoPayload = (v: NonNullable<ApiResponse["video"]>) => ({
+    url: v.url,
+    title: v.title,
+    channelName: v.channelName,
+  });
+
   async function run(u: string) {
     const trimmed = u.trim();
     if (!trimmed) return;
@@ -194,18 +201,81 @@ function MainWorkspace() {
     const controller = new AbortController();
     processAbortRef.current = controller;
     setLoading(true);
+    setProgressLabel(null);
     setError(null);
     setData(null);
+    const jsonHeaders = { "Content-Type": "application/json" };
     try {
-      const res = await fetch("/api/process", {
+      setProgressLabel("Transcription…");
+      const resT = await fetch("/api/transcript", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: jsonHeaders,
         body: JSON.stringify({ url: trimmed }),
         signal: controller.signal,
       });
-      const json = await safeJson<ApiResponse>(res);
-      if (!res.ok || json.error) throw new Error(json.error || `Erreur HTTP ${res.status}`);
-      setData(json);
+      const jT = await safeJson<{ error?: string; video?: ApiResponse["video"]; transcript?: string }>(resT);
+      if (!resT.ok || jT.error || !jT.video || !jT.transcript) {
+        throw new Error(jT.error || `Erreur transcription (HTTP ${resT.status})`);
+      }
+
+      setProgressLabel("Idées clés…");
+      const resI = await fetch("/api/generate-part", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          part: "ideas",
+          video: videoPayload(jT.video),
+          transcript: jT.transcript,
+        }),
+        signal: controller.signal,
+      });
+      const jI = await safeJson<{ error?: string; ideas?: string[] }>(resI);
+      if (!resI.ok || jI.error || !jI.ideas?.length) {
+        throw new Error(jI.error || `Erreur idées (HTTP ${resI.status})`);
+      }
+
+      setProgressLabel("Article SEO…");
+      const resS = await fetch("/api/generate-part", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          part: "seo",
+          video: videoPayload(jT.video),
+          transcript: jT.transcript,
+        }),
+        signal: controller.signal,
+      });
+      const jS = await safeJson<{ error?: string; seoArticle?: string }>(resS);
+      if (!resS.ok || jS.error || !jS.seoArticle) {
+        throw new Error(jS.error || `Erreur SEO (HTTP ${resS.status})`);
+      }
+
+      setProgressLabel("LinkedIn…");
+      const resL = await fetch("/api/generate-part", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          part: "linkedin",
+          video: videoPayload(jT.video),
+          transcript: jT.transcript,
+        }),
+        signal: controller.signal,
+      });
+      const jL = await safeJson<{
+        error?: string;
+        linkedinCarousel?: ApiResponse["linkedinCarousel"];
+      }>(resL);
+      if (!resL.ok || jL.error || !jL.linkedinCarousel) {
+        throw new Error(jL.error || `Erreur LinkedIn (HTTP ${resL.status})`);
+      }
+
+      setData({
+        video: jT.video,
+        transcript: jT.transcript,
+        ideas: jI.ideas,
+        seoArticle: jS.seoArticle,
+        linkedinCarousel: jL.linkedinCarousel,
+      });
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") {
         setError("Traitement stoppé.");
@@ -213,6 +283,7 @@ function MainWorkspace() {
         setError(e instanceof Error ? e.message : "Erreur inconnue.");
       }
     } finally {
+      setProgressLabel(null);
       setLoading(false);
     }
   }
@@ -325,7 +396,7 @@ function MainWorkspace() {
                   className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-transform duration-150 ease-out hover:scale-[1.03] hover:bg-sky-700 active:scale-[1.01] disabled:opacity-50 sm:w-auto"
                 >
                   {loading ? (
-                    "Traitement…"
+                    progressLabel || "Traitement…"
                   ) : (
                     <>
                       <span className="text-white/95">
@@ -390,7 +461,7 @@ function MainWorkspace() {
         ) : null}
 
         {loading ? (
-          <LoadingCard onStop={stopProcessing} />
+          <LoadingCard onStop={stopProcessing} step={progressLabel} />
         ) : null}
 
         {data?.video ? (
@@ -547,7 +618,7 @@ function MainWorkspace() {
   );
 }
 
-function LoadingCard({ onStop }: { onStop: () => void }) {
+function LoadingCard({ onStop, step }: { onStop: () => void; step: string | null }) {
   return (
     <div className="mb-4 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
       <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
@@ -565,13 +636,17 @@ function LoadingCard({ onStop }: { onStop: () => void }) {
           </span>
           <div>
             <p className="text-sm font-semibold text-gray-900">Génération en cours…</p>
-            <p className="text-xs text-gray-500">Transcription brute → analyse IA → contenus</p>
+            <p className="text-xs text-gray-500">
+              {step
+                ? `${step} — plusieurs étapes courtes pour éviter les timeouts Netlify.`
+                : "Transcription puis IA par étapes (idées, SEO, LinkedIn)."}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <div className="hidden items-center gap-2 text-xs font-medium text-sky-700 sm:flex">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400" />
-            Traitement
+          <div className="hidden max-w-[140px] items-center gap-2 truncate text-xs font-medium text-sky-700 sm:flex" title={step || ""}>
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-sky-400" />
+            {step || "…"}
           </div>
           <button
             type="button"
