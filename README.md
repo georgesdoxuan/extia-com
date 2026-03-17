@@ -6,7 +6,7 @@ Web app: tu colles (ou glisses-déposes) une URL YouTube (vidéo Extia), l’app
 
 - 5 idées clés
 - 1 article SEO
-- 1 carousel LinkedIn (slides + caption + hashtags)
+- 1 carousel LinkedIn (cover + 5–6 pages contenu + slide CTA, caption + hashtags)
 
 ## Getting Started
 

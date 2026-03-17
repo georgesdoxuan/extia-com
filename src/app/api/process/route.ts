@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { EXTIA_CONTEXT } from "@/lib/extiaContext";
 import { EXTIA_LINKEDIN_STYLE_GUIDE } from "@/lib/linkedinStyleGuide";
+import { LINKEDIN_CAROUSEL_SLIDES_PROMPT, parseLinkedinSlides } from "@/lib/linkedinCarouselSlides";
 
 type ProcessRequest = {
   url?: string;
@@ -479,6 +480,8 @@ ${EXTIA_CONTEXT}
 Style LinkedIn Extia (caption + carousel uniquement):
 ${EXTIA_LINKEDIN_STYLE_GUIDE}
 
+${LINKEDIN_CAROUSEL_SLIDES_PROMPT}
+
 Source:
 - URL: ${input.videoUrl}
 - Titre: ${input.videoTitle}
@@ -493,8 +496,10 @@ Génère STRICTEMENT un JSON valide (pas de markdown), avec ce schéma:
   "seoArticle": "article en français en TEXTE (pas de HTML, pas de Markdown). Utilise des titres en texte simple (sans ##/###), intro, conclusion, CTA vers extia.fr.",
   "linkedinCarousel": {
     "slides": [
-      { "title": "Slide 1", "bullets": ["...", "..."] }
-      // 7 à 10 slides
+      { "type": "cover", "title": "…", "bullets": [] },
+      { "type": "content", "title": "…", "bullets": ["…"] },
+      … (5 ou 6 content) …
+      { "type": "cta", "title": "…", "bullets": ["…"] }
     ],
     "caption": "Texte de post LinkedIn (FR) + CTA",
     "hashtags": ["#...", "#..."]
@@ -504,7 +509,7 @@ Génère STRICTEMENT un JSON valide (pas de markdown), avec ce schéma:
 Contraintes:
 - 5 idées clés: courtes, actionnables, fidèles au transcript.
 - Article SEO: texte uniquement (pas HTML, pas Markdown). Longueur cible: 700–1100 mots. Titres en casse normale (pas en majuscules). Paragraphes de 2 à 4 phrases. Ajoute 5 FAQs en fin d’article.
-- Carousel LinkedIn: 7 à 10 slides, style percutant, phrases courtes, sans jargon inutile.
+- Carousel LinkedIn: 1 cover + 5 ou 6 slides contenu + 1 CTA (voir structure ci-dessus).
 - Caption LinkedIn + hashtags: respecter le guide de style LinkedIn Extia ci-dessus (structure, emojis modérés, CTA clair, hashtags en fin).
 - Ne pas inventer de faits (chiffres, clients, labels) hors transcript + contexte.
 `.trim();
@@ -527,21 +532,16 @@ Contraintes:
     ? parsed.linkedinCarousel.hashtags.filter((x: any) => typeof x === "string")
     : [];
 
-  if (ideas.length !== 5 || !seoArticle || slides.length < 5 || !caption) {
-    throw new Error("Réponse IA incomplète (champs manquants).");
+  const normSlides = parseLinkedinSlides(slides);
+  if (ideas.length !== 5 || !seoArticle || !normSlides || !caption) {
+    throw new Error("Réponse IA incomplète (champs manquants ou carousel invalide).");
   }
 
   return {
     ideas: ideas.slice(0, 5),
     seoArticle,
     linkedinCarousel: {
-      slides: slides
-        .map((s: any) => ({
-          title: typeof s?.title === "string" ? s.title : "",
-          bullets: Array.isArray(s?.bullets) ? s.bullets.filter((b: any) => typeof b === "string") : [],
-        }))
-        .filter((s: any) => s.title && s.bullets.length > 0)
-        .slice(0, 10),
+      slides: normSlides,
       caption,
       hashtags,
     },

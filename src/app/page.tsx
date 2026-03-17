@@ -149,8 +149,39 @@ type ApiResponse = {
   transcript?: string;
   ideas?: string[];
   seoArticle?: string;
-  linkedinCarousel?: { slides: { title: string; bullets: string[] }[]; caption: string; hashtags: string[] };
+  linkedinCarousel?: {
+    slides: { type?: "cover" | "content" | "cta"; title: string; bullets: string[] }[];
+    caption: string;
+    hashtags: string[];
+  };
 };
+
+function linkedinSlideHeading(
+  slide: { type?: "cover" | "content" | "cta"; title: string; bullets: string[] },
+  index: number,
+  total: number,
+): string {
+  const t = slide.type ?? (index === 0 ? "cover" : index === total - 1 ? "cta" : "content");
+  if (t === "cover") return "Couverture";
+  if (t === "cta") return "Call to action";
+  return `Contenu ${index} / ${total - 2}`;
+}
+
+function formatLinkedinSlidesForCopy(
+  slides: { type?: "cover" | "content" | "cta"; title: string; bullets: string[] }[],
+): string {
+  const n = slides.length;
+  return slides
+    .map((s, idx) => {
+      const head = linkedinSlideHeading(s, idx, n);
+      const body =
+        s.bullets.length > 0
+          ? `${s.title}\n${s.bullets.map((b) => `• ${b}`).join("\n")}`
+          : s.title;
+      return `━━ ${head} ━━\n${body}`;
+    })
+    .join("\n\n");
+}
 
 function splitSeoTitleAndBody(seoArticle: string): { title?: string; body: string } {
   const raw = seoArticle.trim();
@@ -370,9 +401,7 @@ function MainWorkspace() {
     setRegenLinkedinLoading(true);
     setError(null);
     try {
-      const prevSlidesText = data.linkedinCarousel.slides
-        .map((s, idx) => `Slide ${idx + 1}: ${s.title}\n${s.bullets.map((b) => `- ${b}`).join("\n")}`)
-        .join("\n\n");
+      const prevSlidesText = formatLinkedinSlidesForCopy(data.linkedinCarousel.slides);
       const res = await fetch("/api/regenerate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -388,7 +417,7 @@ function MainWorkspace() {
       });
       const json = await safeJson<{
         error?: string;
-        linkedinCarousel?: { slides: { title: string; bullets: string[] }[]; caption: string; hashtags: string[] };
+        linkedinCarousel?: ApiResponse["linkedinCarousel"];
       }>(res);
       if (!res.ok || json.error) throw new Error(json.error || `Erreur HTTP ${res.status}`);
       setData((prev) => (prev ? { ...prev, linkedinCarousel: json.linkedinCarousel || prev.linkedinCarousel } : prev));
@@ -578,14 +607,10 @@ function MainWorkspace() {
               icon={<IconCarouselSolid />}
               iconClassName="text-sky-600"
               title="Carousel LinkedIn"
-              subtitle={`${data.linkedinCarousel.slides.length} slides`}
+              subtitle={`${data.linkedinCarousel.slides.length} pages · cover + contenu + CTA`}
             >
               <div className="flex items-center justify-between gap-3">
-                <CopyBtn
-                  text={data.linkedinCarousel.slides
-                    .map((s, idx) => `Slide ${idx + 1}: ${s.title}\n${s.bullets.map((b) => `• ${b}`).join("\n")}`)
-                    .join("\n\n")}
-                />
+                <CopyBtn text={formatLinkedinSlidesForCopy(data.linkedinCarousel.slides)} />
                 <SmallActionButton onClick={() => void regenerateLinkedin()} disabled={regenLinkedinLoading || loading}>
                   {regenLinkedinLoading ? (
                     "Regénération…"
@@ -600,18 +625,57 @@ function MainWorkspace() {
                 </SmallActionButton>
               </div>
               <div className="mt-4 space-y-3">
-                {data.linkedinCarousel.slides.map((s, idx) => (
-                  <div key={idx} className="rounded-lg border border-gray-100 bg-gray-50/50 p-4">
-                    <p className="text-sm font-semibold text-gray-900">
-                      {idx + 1}. {s.title}
-                    </p>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
-                      {s.bullets.map((b, i) => (
-                        <li key={i}>{b}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
+                {data.linkedinCarousel.slides.map((s, idx) => {
+                  const n = data.linkedinCarousel!.slides.length;
+                  const kind = s.type ?? (idx === 0 ? "cover" : idx === n - 1 ? "cta" : "content");
+                  const heading = linkedinSlideHeading(s, idx, n);
+                  if (kind === "cover") {
+                    return (
+                      <div
+                        key={idx}
+                        className="rounded-xl border-2 border-sky-200/80 bg-gradient-to-br from-sky-50 to-white p-6 text-center shadow-sm"
+                      >
+                        <p className="text-xs font-bold uppercase tracking-wider text-sky-600">{heading}</p>
+                        <p className="mt-3 text-xl font-extrabold leading-snug text-gray-900 sm:text-2xl">{s.title}</p>
+                        {s.bullets.length > 0 ? (
+                          <p className="mt-3 text-sm font-medium text-gray-600">{s.bullets.join(" · ")}</p>
+                        ) : null}
+                      </div>
+                    );
+                  }
+                  if (kind === "cta") {
+                    return (
+                      <div
+                        key={idx}
+                        className="rounded-xl border-2 border-orange-200/90 bg-gradient-to-br from-orange-50/90 to-amber-50/50 p-5 shadow-sm"
+                      >
+                        <p className="text-xs font-bold uppercase tracking-wider text-orange-700">{heading}</p>
+                        <p className="mt-2 text-lg font-bold text-gray-900">{s.title}</p>
+                        <ul className="mt-3 list-none space-y-2 text-sm font-medium text-gray-800">
+                          {s.bullets.map((b, i) => (
+                            <li key={i} className="flex gap-2">
+                              <span className="text-orange-500" aria-hidden>
+                                →
+                              </span>
+                              <span>{b}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={idx} className="rounded-lg border border-gray-100 bg-gray-50/50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{heading}</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">{s.title}</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
+                        {s.bullets.map((b, i) => (
+                          <li key={i}>{b}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
               </div>
             </ResultCard>
             <ResultCard

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { EXTIA_CONTEXT } from "@/lib/extiaContext";
 import { EXTIA_LINKEDIN_STYLE_GUIDE } from "@/lib/linkedinStyleGuide";
+import { LINKEDIN_CAROUSEL_SLIDES_PROMPT, parseLinkedinSlides } from "@/lib/linkedinCarouselSlides";
 
 type RegenerateRequest = {
   kind?: "seo" | "linkedin";
@@ -349,10 +350,17 @@ ${previousCaption}
 Slides précédentes:
 ${previousSlides}
 
+${LINKEDIN_CAROUSEL_SLIDES_PROMPT}
+
 Génère STRICTEMENT un JSON valide (pas de markdown) avec:
 {
   "linkedinCarousel": {
-    "slides": [{ "title": "Slide 1", "bullets": ["...", "..."] }],
+    "slides": [
+      { "type": "cover", "title": "…", "bullets": [] },
+      { "type": "content", "title": "…", "bullets": ["…"] },
+      … (5 ou 6 slides content) …
+      { "type": "cta", "title": "…", "bullets": ["…"] }
+    ],
     "caption": "Post LinkedIn FR + CTA",
     "hashtags": ["#...","#..."]
   }
@@ -373,16 +381,13 @@ Génère STRICTEMENT un JSON valide (pas de markdown) avec:
     const caption = typeof lc?.caption === "string" ? lc.caption : "";
     const hashtags = Array.isArray(lc?.hashtags) ? lc.hashtags.filter((x: any) => typeof x === "string") : [];
 
-    const normSlides = slides
-      .map((s: any) => ({
-        title: typeof s?.title === "string" ? s.title : "",
-        bullets: Array.isArray(s?.bullets) ? s.bullets.filter((b: any) => typeof b === "string") : [],
-      }))
-      .filter((s: any) => s.title && s.bullets.length > 0)
-      .slice(0, 10);
+    const normSlides = parseLinkedinSlides(slides);
 
-    if (!caption || normSlides.length < 5) {
-      return NextResponse.json({ error: "Réponse IA incomplète (LinkedIn)." }, { status: 500 });
+    if (!caption || !normSlides) {
+      return NextResponse.json(
+        { error: "Réponse IA incomplète (LinkedIn : 1 cover + 5–6 contenus + 1 CTA)." },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({

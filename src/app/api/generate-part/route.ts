@@ -4,6 +4,7 @@ import { EXTIA_LINKEDIN_STYLE_GUIDE } from "@/lib/linkedinStyleGuide";
 import { condenseTranscriptForAi } from "@/lib/condenseTranscript";
 import { normalizeSeoArticle } from "@/lib/seoArticleNormalize";
 import { generateGeminiJson } from "@/lib/geminiJson";
+import { LINKEDIN_CAROUSEL_SLIDES_PROMPT, parseLinkedinSlides } from "@/lib/linkedinCarouselSlides";
 
 type VideoMeta = { url: string; title: string; channelName: string };
 type Body = {
@@ -108,45 +109,46 @@ ${EXTIA_CONTEXT}
 Style LinkedIn Extia (caption + carousel):
 ${EXTIA_LINKEDIN_STYLE_GUIDE}
 
+${LINKEDIN_CAROUSEL_SLIDES_PROMPT}
+
 ${source}
 
 Génère STRICTEMENT un JSON valide (pas de markdown), schéma:
 {
   "linkedinCarousel": {
-    "slides": [ { "title": "...", "bullets": ["...", "..."] } ],
-    "caption": "...",
+    "slides": [
+      { "type": "cover", "title": "…", "bullets": [] },
+      { "type": "content", "title": "…", "bullets": ["…", "…"] },
+      … (5 ou 6 slides "content") …
+      { "type": "cta", "title": "…", "bullets": ["…"] }
+    ],
+    "caption": "Post LinkedIn FR + CTA",
     "hashtags": ["#...", "#..."]
   }
 }
 
 Contraintes:
-- 7 à 10 slides, style percutant, phrases courtes.
-- Caption + hashtags: respecter le guide de style LinkedIn Extia (emojis modérés, CTA clair, hashtags en fin).
+- Respecter exactement la structure cover → 5 ou 6 × content → cta (7 ou 8 slides).
+- Caption + hashtags: guide Extia (emojis modérés, CTA clair, hashtags en fin).
 - Ne pas inventer de faits hors transcript + contexte.
 `.trim();
 
     const text = await generateGeminiJson(prompt, 2048);
     const parsed = JSON.parse(text) as { linkedinCarousel?: unknown };
     const lc = parsed?.linkedinCarousel as Record<string, unknown> | undefined;
-    const slides = Array.isArray(lc?.slides) ? lc.slides : [];
+    const slidesRaw = Array.isArray(lc?.slides) ? lc.slides : [];
     const caption = typeof lc?.caption === "string" ? lc.caption : "";
     const hashtags = Array.isArray(lc?.hashtags)
       ? lc.hashtags.filter((x): x is string => typeof x === "string")
       : [];
 
-    const normalizedSlides = slides
-      .map((s: unknown) => {
-        const o = s as Record<string, unknown>;
-        return {
-          title: typeof o?.title === "string" ? o.title : "",
-          bullets: Array.isArray(o?.bullets) ? o.bullets.filter((b): b is string => typeof b === "string") : [],
-        };
-      })
-      .filter((s) => s.title && s.bullets.length > 0)
-      .slice(0, 10);
+    const normalizedSlides = parseLinkedinSlides(slidesRaw);
 
-    if (normalizedSlides.length < 5 || !caption) {
-      return NextResponse.json({ error: "Réponse IA incomplète (carousel LinkedIn)." }, { status: 502 });
+    if (!normalizedSlides || !caption) {
+      return NextResponse.json(
+        { error: "Réponse IA incomplète (carousel : 1 cover + 5–6 contenus + 1 CTA attendus)." },
+        { status: 502 },
+      );
     }
 
     return NextResponse.json({
