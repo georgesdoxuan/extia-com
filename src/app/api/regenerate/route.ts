@@ -188,14 +188,14 @@ async function generateJson(apiKey: string, prompt: string) {
 function htmlToMarkdownish(input: string) {
   let s = input;
   s = s.replace(/\r\n/g, "\n");
-  s = s.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n\n$1\n");
-  s = s.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n\n$1\n");
+  s = s.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n\n## $1\n");
+  s = s.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n\n### $1\n");
   s = s.replace(/<br\s*\/?>/gi, "\n");
   s = s.replace(/<\/p>\s*<p[^>]*>/gi, "\n\n");
   s = s.replace(/<p[^>]*>/gi, "");
   s = s.replace(/<\/p>/gi, "\n");
-  s = s.replace(/<strong[^>]*>([\s\S]*?)<\/strong>/gi, "$1");
-  s = s.replace(/<em[^>]*>([\s\S]*?)<\/em>/gi, "$1");
+  s = s.replace(/<strong[^>]*>([\s\S]*?)<\/strong>/gi, "**$1**");
+  s = s.replace(/<em[^>]*>([\s\S]*?)<\/em>/gi, "_$1_");
   s = s.replace(/<a[^>]*href=\"([^\"]+)\"[^>]*>([\s\S]*?)<\/a>/gi, "$2 ($1)");
   s = s.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1");
   s = s.replace(/<\/ul>/gi, "\n");
@@ -214,13 +214,13 @@ function normalizeSeoArticle(article: string) {
   let s = article.trim();
   if (!s) return s;
   if (/[<][a-z][\s\S]*[>]/i.test(s) && /<\/(h2|h3|p|ul|li|a|strong)>/i.test(s)) s = htmlToMarkdownish(s);
-  s = s.replace(/^\s{0,3}#{1,6}\s+/gm, "");
-  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
-  s = s.replace(/__([^_]+)__/g, "$1");
-  s = s.replace(/(^|[^\*])\*([^*\n]+)\*(?!\*)/g, "$1$2");
-  s = s.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1$2");
 
   s = s.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  // Strip bold markers in non-heading lines
+  s = s
+    .split("\n")
+    .map((line) => (line.trimStart().startsWith("#") ? line : line.replace(/\*\*([^*]+)\*\*/g, "$1")))
+    .join("\n");
   s = s.replace(/\n(\d+)\.\s*\n+\s*/g, "\n$1. ");
 
   const stopWords = new Set([
@@ -268,9 +268,10 @@ function normalizeSeoArticle(article: string) {
   const isHeadingLike = (line: string) => {
     const t = line.trim();
     if (!t) return false;
+    if (t.startsWith("## ") || t.startsWith("### ")) return true;
     if (isAllCaps(t)) return true;
     if (/^(conclusion|foire aux questions|faq)\b/i.test(t)) return true;
-    if (t.endsWith(":")) return true;
+    if (t.endsWith("?")) return true;
     return false;
   };
 
@@ -298,7 +299,9 @@ function normalizeSeoArticle(article: string) {
     if (!line) continue;
     if (isHeadingLike(line)) {
       flushParagraph();
-      out.push(isAllCaps(line) ? titleCase(line) : line, "");
+      let heading = isAllCaps(line) ? titleCase(line) : line;
+      if (!heading.startsWith("#")) heading = `## ${heading}`;
+      out.push(heading, "");
       continue;
     }
     if (line.startsWith("- ")) {
@@ -325,7 +328,9 @@ function normalizeSeoArticle(article: string) {
     const rebuilt: string[] = [];
     for (const chunk of chunks) {
       if (isHeadingLike(chunk)) {
-        rebuilt.push(isAllCaps(chunk) ? titleCase(chunk) : chunk, "");
+        let heading = isAllCaps(chunk) ? titleCase(chunk) : chunk;
+        if (!heading.startsWith("#")) heading = `## ${heading}`;
+        rebuilt.push(heading, "");
         continue;
       }
       const sentences = sentenceSplit(chunk);
@@ -407,9 +412,9 @@ ${condenseTranscriptForAi(transcript)}
 Article précédent (NE PAS REPRENDRE les mêmes formulations/angles; propose un autre angle):
 ${previousSeo}
 
-Génère STRICTEMENT un JSON valide (pas de markdown) avec:
+Génère STRICTEMENT un JSON valide avec:
 { "seoArticle": "…" }
-(le texte complet respectant la structure : titre ligne 1, chapeau, sections en questions, pas de puces, 450–700 mots environ)
+(le texte complet respectant la structure : titre ligne 1, chapeau, sections ## en questions, bullets - autorisés, **gras** autorisé, 450–700 mots environ)
 `.trim()
         : `
 Tu écris des contenus LinkedIn pour Extia.

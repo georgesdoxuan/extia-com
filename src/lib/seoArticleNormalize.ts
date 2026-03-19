@@ -29,12 +29,12 @@ export function normalizeSeoArticle(article: string) {
   if (/[<][a-z][\s\S]*[>]/i.test(s) && /<\/(h2|h3|p|ul|li|a|strong)>/i.test(s)) {
     s = htmlToMarkdownish(s);
   }
-  s = s.replace(/^\s{0,3}#{1,6}\s+/gm, "");
-  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
-  s = s.replace(/__([^_]+)__/g, "$1");
-  s = s.replace(/(^|[^\*])\*([^*\n]+)\*(?!\*)/g, "$1$2");
-  s = s.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1$2");
   s = s.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  // Strip bold markers in non-heading lines (## lines keep their ** for rendering)
+  s = s
+    .split("\n")
+    .map((line) => (line.trimStart().startsWith("#") ? line : line.replace(/\*\*([^*]+)\*\*/g, "$1")))
+    .join("\n");
 
   const stopWords = new Set([
     "de",
@@ -83,9 +83,10 @@ export function normalizeSeoArticle(article: string) {
   const isHeadingLike = (line: string) => {
     const t = line.trim();
     if (!t) return false;
+    if (t.startsWith("## ") || t.startsWith("### ")) return true;
     if (isAllCaps(t)) return true;
     if (/^(conclusion|foire aux questions|faq)\b/i.test(t)) return true;
-    if (t.endsWith(":")) return true;
+    if (t.endsWith("?")) return true;
     return false;
   };
 
@@ -124,7 +125,9 @@ export function normalizeSeoArticle(article: string) {
 
     if (isHeadingLike(line)) {
       flushParagraph();
-      out.push(isAllCaps(line) ? titleCase(line) : line, "");
+      let heading = isAllCaps(line) ? titleCase(line) : line;
+      if (!heading.startsWith("#")) heading = `## ${heading}`;
+      out.push(heading, "");
       continue;
     }
 
@@ -153,7 +156,9 @@ export function normalizeSeoArticle(article: string) {
     const rebuilt: string[] = [];
     for (const chunk of chunks) {
       if (isHeadingLike(chunk)) {
-        rebuilt.push(isAllCaps(chunk) ? titleCase(chunk) : chunk, "");
+        let heading = isAllCaps(chunk) ? titleCase(chunk) : chunk;
+        if (!heading.startsWith("#")) heading = `## ${heading}`;
+        rebuilt.push(heading, "");
         continue;
       }
       const sentences = sentenceSplit(chunk);

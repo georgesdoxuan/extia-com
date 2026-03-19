@@ -198,6 +198,58 @@ function splitSeoTitleAndBody(seoArticle: string): { title?: string; body: strin
   return { title: first, body: bodyStart || raw };
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function applyInlineMd(str: string): string {
+  return str.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+}
+
+function markdownToHtml(md: string): string {
+  const lines = md.split("\n");
+  const parts: string[] = [];
+  let ulBuffer: string[] = [];
+
+  const flushUl = () => {
+    if (ulBuffer.length) {
+      parts.push(`<ul>${ulBuffer.join("")}</ul>`);
+      ulBuffer = [];
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line.startsWith("## ")) {
+      flushUl();
+      parts.push(`<h2>${applyInlineMd(escapeHtml(line.slice(3)))}</h2>`);
+    } else if (line.startsWith("### ")) {
+      flushUl();
+      parts.push(`<h3>${applyInlineMd(escapeHtml(line.slice(4)))}</h3>`);
+    } else if (line.startsWith("- ")) {
+      ulBuffer.push(`<li>${applyInlineMd(escapeHtml(line.slice(2)))}</li>`);
+    } else if (line === "") {
+      flushUl();
+    } else {
+      flushUl();
+      parts.push(`<p>${applyInlineMd(escapeHtml(line))}</p>`);
+    }
+  }
+  flushUl();
+  return parts.join("");
+}
+
+function stripMarkdownForPlainText(md: string): string {
+  return md
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/^- /gm, "• ");
+}
+
 /** Libellés d’attente (sans jargon technique) selon l’étape en cours. */
 function loadingWaitPhrase(step: string | null): { title: string; detail: string } {
   if (!step) {
@@ -576,7 +628,10 @@ function MainWorkspace() {
                     <h4 className="mt-2 text-2xl font-extrabold tracking-tight text-gray-900">{seoTitle}</h4>
                   ) : null}
                   <div className="mt-3 flex items-center justify-between gap-3">
-                    <CopyBtn text={seoBody || data.seoArticle} />
+                    <CopyBtn
+                      text={stripMarkdownForPlainText(seoBody || data.seoArticle)}
+                      html={markdownToHtml(seoBody || data.seoArticle)}
+                    />
                     <SmallActionButton onClick={() => void regenerateSeo()} disabled={regenSeoLoading || loading}>
                       {regenSeoLoading ? (
                         "Regénération…"
@@ -590,10 +645,9 @@ function MainWorkspace() {
                       )}
                     </SmallActionButton>
                   </div>
-                  <textarea
-                    readOnly
-                    value={seoBody || data.seoArticle}
-                    className="mt-3 h-72 w-full resize-y rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm leading-relaxed text-gray-800"
+                  <div
+                    className="mt-3 max-h-96 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-3 text-sm leading-relaxed text-gray-800 [&_h2]:mb-1 [&_h2]:mt-4 [&_h2]:text-base [&_h2]:font-bold [&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:text-sm [&_h3]:font-bold [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-0.5 [&_p]:my-1.5"
+                    dangerouslySetInnerHTML={{ __html: markdownToHtml(seoBody || data.seoArticle) }}
                   />
                 </>
               );
@@ -772,7 +826,7 @@ function LoadingCard({ onStop, step }: { onStop: () => void; step: string | null
   );
 }
 
-function CopyBtn({ text }: { text: string }) {
+function CopyBtn({ text, html }: { text: string; html?: string }) {
   const [copied, setCopied] = React.useState(false);
   const timeoutRef = React.useRef<number | null>(null);
 
@@ -784,7 +838,16 @@ function CopyBtn({ text }: { text: string }) {
 
   async function onCopy() {
     try {
-      await navigator.clipboard.writeText(text);
+      if (html && typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([html], { type: "text/html" }),
+            "text/plain": new Blob([text], { type: "text/plain" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
       setCopied(true);
       if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
       timeoutRef.current = window.setTimeout(() => setCopied(false), 1200);
