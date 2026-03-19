@@ -412,9 +412,9 @@ ${condenseTranscriptForAi(transcript)}
 Article précédent (NE PAS REPRENDRE les mêmes formulations/angles; propose un autre angle):
 ${previousSeo}
 
-Génère STRICTEMENT un JSON valide avec:
+Génère STRICTEMENT un objet JSON valide (sans balise de code ni enveloppe markdown autour du JSON), schéma:
 { "seoArticle": "…" }
-(le texte complet respectant la structure : titre ligne 1, chapeau, sections ## en questions, bullets - autorisés, **gras** autorisé, 450–700 mots environ)
+L'article dans "seoArticle" DOIT utiliser le Markdown demandé (## pour les titres, - pour les bullets). Titre en première ligne, 450–700 mots.
 `.trim()
         : `
 Tu écris des contenus LinkedIn pour Extia.

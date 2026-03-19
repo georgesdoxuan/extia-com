@@ -85,14 +85,14 @@ ${SEO_ARTICLE_STRUCTURE_FR}
 
 ${source}
 
-Génère STRICTEMENT un JSON valide (pas de markdown), schéma:
+Génère STRICTEMENT un objet JSON valide (sans balise de code ni enveloppe markdown autour du JSON), schéma:
 { "seoArticle": "..." }
 
-L’article = le texte complet selon la structure ci-dessus (titre en première ligne du contenu).
+L’article dans "seoArticle" DOIT utiliser le Markdown demandé (## pour les titres de section, - pour les bullets).
 Ne pas inventer de faits hors transcript + contexte.
 `.trim();
 
-      const text = await generateGeminiJson(prompt, 3072);
+      const text = await generateGeminiJson(prompt, 8192);
       const parsed = JSON.parse(text) as { seoArticle?: unknown };
       const raw = typeof parsed?.seoArticle === "string" ? parsed.seoArticle : "";
       const seoArticle = normalizeSeoArticle(raw);
