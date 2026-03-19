@@ -464,8 +464,8 @@ Génère STRICTEMENT un JSON valide (pas de markdown) avec:
 
     if (kind === "seo") {
       const seo = typeof parsed?.seoArticle === "string" ? normalizeSeoArticle(parsed.seoArticle) : "";
-      if (!seo || seo.length < 800) {
-        return NextResponse.json({ error: "Réponse IA incomplète (article SEO manquant ou trop court)." }, { status: 500 });
+      if (!seo) {
+        return NextResponse.json({ error: "Réponse IA incomplète (article SEO manquant)." }, { status: 500 });
       }
       return NextResponse.json({ seoArticle: seo });
     }

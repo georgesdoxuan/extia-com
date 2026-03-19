@@ -622,7 +622,7 @@ Contraintes:
     : [];
 
   const normSlides = parseLinkedinSlides(slides);
-  if (ideas.length !== 5 || !seoArticle || seoArticle.length < 800 || !normSlides || !caption) {
+  if (ideas.length !== 5 || !seoArticle || !seoArticle || !normSlides || !caption) {
     throw new Error("Réponse IA incomplète (champs manquants, article trop court ou carousel invalide).");
   }
 

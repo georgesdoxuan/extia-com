@@ -96,8 +96,8 @@ Ne pas inventer de faits hors transcript + contexte.
       const parsed = JSON.parse(text) as { seoArticle?: unknown };
       const raw = typeof parsed?.seoArticle === "string" ? parsed.seoArticle : "";
       const seoArticle = normalizeSeoArticle(raw);
-      if (!seoArticle || seoArticle.length < 800) {
-        return NextResponse.json({ error: "Réponse IA incomplète (article SEO trop court)." }, { status: 502 });
+      if (!seoArticle) {
+        return NextResponse.json({ error: "Réponse IA incomplète (article SEO manquant)." }, { status: 502 });
       }
       return NextResponse.json({ seoArticle });
     }
