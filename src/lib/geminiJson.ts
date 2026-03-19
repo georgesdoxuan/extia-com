@@ -35,17 +35,63 @@ function asUserFacingGeminiError(lastError: unknown, candidates: string[]): Erro
   return new Error(`Erreur Gemini (modèles testés: ${candidates.join(", ")}). ${msg}`.trim());
 }
 
-function extractFirstJsonObject(text: string): string | null {
+function parseIfJsonObject(input: string): string | null {
+  try {
+    const parsed = JSON.parse(input.trim());
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return JSON.stringify(parsed);
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function extractBalancedJsonObject(text: string): string | null {
   const start = text.indexOf("{");
   if (start === -1) return null;
   let depth = 0;
+  let inString = false;
+  let escaped = false;
   for (let i = start; i < text.length; i++) {
     const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === "\"") {
+      inString = true;
+      continue;
+    }
     if (ch === "{") depth++;
     if (ch === "}") depth--;
     if (depth === 0) return text.slice(start, i + 1);
   }
   return null;
+}
+
+function extractFirstJsonObject(text: string): string | null {
+  const direct = parseIfJsonObject(text);
+  if (direct) return direct;
+
+  const fenced = Array.from(text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi));
+  for (const m of fenced) {
+    const block = m[1] ?? "";
+    const parsed = parseIfJsonObject(block);
+    if (parsed) return parsed;
+    const extracted = extractBalancedJsonObject(block);
+    if (extracted && parseIfJsonObject(extracted)) return extracted;
+  }
+
+  const extracted = extractBalancedJsonObject(text);
+  if (!extracted) return null;
+  return parseIfJsonObject(extracted) ? extracted : null;
 }
 
 async function forceJsonRetry(model: ReturnType<GoogleGenerativeAI["getGenerativeModel"]>, prompt: string): Promise<string> {
