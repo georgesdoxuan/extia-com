@@ -102,6 +102,7 @@ export function normalizeSeoArticle(article: string) {
   const lines = s.split("\n");
   const out: string[] = [];
   let paragraph: string[] = [];
+  let titleEmitted = false;
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
@@ -113,6 +114,13 @@ export function normalizeSeoArticle(article: string) {
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line) continue;
+
+    // Toujours préserver la 1ère ligne non-vide comme titre seul sur sa ligne
+    if (!titleEmitted) {
+      out.push(line, "");
+      titleEmitted = true;
+      continue;
+    }
 
     if (isHeadingLike(line)) {
       flushParagraph();

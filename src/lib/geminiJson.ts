@@ -143,13 +143,21 @@ export async function generateGeminiJson(prompt: string, maxOutputTokens = 2048)
   }
 
   function modelConfig(model: string, forceJson: boolean) {
+    // gemini-2.5+ est un modèle "thinking" : ses tokens de réflexion pollutent
+    // la réponse texte et font échouer l'extraction JSON. On désactive le thinking
+    // via thinkingBudget:0 (champ accepté par l'API mais absent des types SDK 0.24.x).
+    const thinkingPatch = model.includes("2.5")
+      ? { thinkingConfig: { thinkingBudget: 0 } }
+      : {};
     return genAI.getGenerativeModel({
       model,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       generationConfig: {
         temperature: 0.6,
         maxOutputTokens,
         ...(forceJson ? { responseMimeType: "application/json" } : {}),
-      },
+        ...thinkingPatch,
+      } as any,
     });
   }
 
