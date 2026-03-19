@@ -225,6 +225,25 @@ async function generateWithGemini(input: {
     return null;
   }
 
+  async function forceJsonRetry(
+    model: ReturnType<GoogleGenerativeAI["getGenerativeModel"]>,
+    promptText: string,
+  ): Promise<any> {
+    const retryPrompt = `${promptText}\n\nIMPORTANT: Réponds UNIQUEMENT avec un objet JSON valide. Aucun texte avant/après.`;
+    const retryRes = await model.generateContent(retryPrompt);
+    const retryText = retryRes.response.text();
+    const extracted = extractFirstJsonObject(retryText);
+    if (!extracted) {
+      throw new Error("Impossible d'extraire un JSON dans la réponse IA (même après relance stricte).");
+    }
+    JSON.parse(extracted);
+    return {
+      response: {
+        text: () => extracted,
+      },
+    } as any;
+  }
+
   async function generateJson(prompt: string) {
     const available = (await listAvailableModelNames()).map(normalizeModelName);
     const preferred = [
@@ -261,7 +280,7 @@ async function generateWithGemini(input: {
         const res = await model.generateContent(prompt);
         const text = res.response.text();
         const extracted = extractFirstJsonObject(text);
-        if (!extracted) throw new Error("Impossible d'extraire un JSON dans la réponse IA.");
+        if (!extracted) return await forceJsonRetry(model, prompt);
         JSON.parse(extracted);
 
         // On retourne un objet "compatible" avec le reste du code (response.text() doit donner le JSON).

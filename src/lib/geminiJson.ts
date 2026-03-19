@@ -48,6 +48,18 @@ function extractFirstJsonObject(text: string): string | null {
   return null;
 }
 
+async function forceJsonRetry(model: ReturnType<GoogleGenerativeAI["getGenerativeModel"]>, prompt: string): Promise<string> {
+  const retryPrompt = `${prompt}\n\nIMPORTANT: Réponds UNIQUEMENT avec un objet JSON valide. Aucun texte avant/après.`;
+  const retryRes = await model.generateContent(retryPrompt);
+  const retryText = retryRes.response.text();
+  const extracted = extractFirstJsonObject(retryText);
+  if (!extracted) {
+    throw new Error("Impossible d'extraire un JSON dans la réponse IA (même après relance stricte).");
+  }
+  JSON.parse(extracted);
+  return extracted;
+}
+
 async function listAvailableModelNames(apiKey: string): Promise<string[]> {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
     cache: "no-store",
@@ -112,7 +124,9 @@ export async function generateGeminiJson(prompt: string, maxOutputTokens = 2048)
       const res = await model.generateContent(prompt);
       const text = res.response.text();
       const extracted = extractFirstJsonObject(text);
-      if (!extracted) throw new Error("Impossible d'extraire un JSON dans la réponse IA.");
+      if (!extracted) {
+        return await forceJsonRetry(model, prompt);
+      }
       JSON.parse(extracted);
       return extracted;
     } catch (e) {
