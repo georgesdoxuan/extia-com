@@ -129,6 +129,10 @@ function Sidebar() {
           <IconGrid />
           Tableau de bord
         </span>
+        <a href="/historique" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50">
+          <IconDocSolid />
+          Historique contenus
+        </a>
         <a
           href="https://extia.fr"
           target="_blank"
@@ -572,6 +576,20 @@ function MainWorkspace() {
             </svg>
           </button>
         </div>
+
+        <ResultCard
+          icon={<IconDocSolid />}
+          iconClassName="text-sky-700"
+          title="Historique complet des contenus"
+          subtitle="SEO + LinkedIn générés automatiquement"
+        >
+          <a
+            href="/historique"
+            className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100"
+          >
+            Ouvrir la page historique
+          </a>
+        </ResultCard>
 
         <h2 className="mb-1 text-lg font-semibold text-sky-800">
           {hasResults ? "Contenus générés" : "Aucun contenu pour l’instant"}

@@ -193,13 +193,33 @@ async function appendResultToSupabase(item: unknown): Promise<boolean> {
 }
 
 async function resolveChannelIdFromHandle(handle: string): Promise<string> {
-  const url = `https://www.youtube.com/${handle}/videos`;
+  const forcedChannelId = process.env.YOUTUBE_CHANNEL_ID?.trim();
+  if (forcedChannelId) return forcedChannelId;
+
+  const normalizedHandle = handle.startsWith("@") ? handle : `@${handle}`;
+  const url = `https://www.youtube.com/${normalizedHandle}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`Impossible de lire la page chaîne (HTTP ${res.status}).`);
+
+  // Some handle URLs redirect to /channel/UC... : this is the most reliable source.
+  const redirected = res.url || "";
+  const redirectedMatch = redirected.match(/\/channel\/(UC[a-zA-Z0-9_-]+)/);
+  if (redirectedMatch?.[1]) return redirectedMatch[1];
+
   const html = await res.text();
-  const m = html.match(/"channelId":"(UC[a-zA-Z0-9_-]+)"/);
-  if (!m?.[1]) throw new Error("channelId introuvable pour la chaîne YouTube.");
-  return m[1];
+  const patterns = [
+    /"channelId":"(UC[a-zA-Z0-9_-]+)"/,
+    /"externalId":"(UC[a-zA-Z0-9_-]+)"/,
+    /https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]+)/,
+  ];
+  for (const pattern of patterns) {
+    const m = html.match(pattern);
+    if (m?.[1]) return m[1];
+  }
+
+  throw new Error(
+    "channelId introuvable pour la chaîne YouTube. Configure YOUTUBE_CHANNEL_ID en variable d'environnement pour fiabiliser le cron.",
+  );
 }
 
 async function fetchLatestFeedEntries(handle: string): Promise<FeedEntry[]> {
@@ -261,6 +281,7 @@ async function callJson(baseUrl: string, route: string, payload: unknown) {
 }
 
 function isAuthorized(req: Request): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) return true; // dev/local convenience
   const header = req.headers.get("x-cron-secret") || "";
@@ -283,18 +304,25 @@ export async function POST(req: Request) {
 
     const handle = (process.env.YOUTUBE_CHANNEL_HANDLE || DEFAULT_CHANNEL_HANDLE).trim();
     const baseUrl = getBaseUrl(req);
+    const mode = new URL(req.url).searchParams.get("mode");
+    const forceLatestEligible = mode === "latest-eligible";
     const state = await readState();
     const processed = new Set(state.processedVideoIds);
 
     const entries = await fetchLatestFeedEntries(handle);
-    const candidates = entries.filter((e) => !processed.has(e.videoId)).slice(0, 10);
+    const candidates = forceLatestEligible
+      ? entries.slice(0, 15)
+      : entries.filter((e) => !processed.has(e.videoId)).slice(0, 10);
     if (!candidates.length) {
       return NextResponse.json({
         ok: true,
         scanned: entries.length,
         newVideos: 0,
         generated: 0,
-        message: "Aucune nouvelle vidéo à traiter.",
+        mode: forceLatestEligible ? "latest-eligible" : "new-only",
+        message: forceLatestEligible
+          ? "Aucune vidéo trouvée dans le flux YouTube."
+          : "Aucune nouvelle vidéo à traiter.",
       });
     }
 
@@ -302,7 +330,8 @@ export async function POST(req: Request) {
       candidates.map((x) => x.videoId),
       youtubeApiKey,
     );
-    const toGenerate = candidates.filter((x) => (durations[x.videoId] || 0) >= MIN_DURATION_SECONDS);
+    const eligible = candidates.filter((x) => (durations[x.videoId] || 0) >= MIN_DURATION_SECONDS);
+    const toGenerate = forceLatestEligible ? eligible.slice(0, 1) : eligible;
 
     let generated = 0;
     const errors: { videoId: string; title: string; error: string }[] = [];
@@ -353,14 +382,17 @@ export async function POST(req: Request) {
     }
 
     // Mark short videos as seen too (so they are not reconsidered forever).
-    for (const vid of candidates.filter((x) => (durations[x.videoId] || 0) < MIN_DURATION_SECONDS)) {
-      processed.add(vid.videoId);
+    if (!forceLatestEligible) {
+      for (const vid of candidates.filter((x) => (durations[x.videoId] || 0) < MIN_DURATION_SECONDS)) {
+        processed.add(vid.videoId);
+      }
     }
 
     await writeState({ processedVideoIds: Array.from(processed).slice(-500) });
 
     return NextResponse.json({
       ok: true,
+      mode: forceLatestEligible ? "latest-eligible" : "new-only",
       scanned: entries.length,
       newVideos: candidates.length,
       eligibleOver20Min: toGenerate.length,
