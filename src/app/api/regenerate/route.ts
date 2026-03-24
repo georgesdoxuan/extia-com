@@ -9,6 +9,7 @@ type RegenerateRequest = {
   kind?: "seo" | "linkedin";
   video?: { url: string; title: string; channelName: string };
   transcript?: string;
+  additionalInstructions?: string;
   previous?: {
     seoArticle?: string;
     linkedinCaption?: string;
@@ -115,6 +116,39 @@ function modelConfig(genAI: GoogleGenerativeAI, model: string, forceJson: boolea
   });
 }
 
+function isQuotaError(message: string): boolean {
+  const lowered = message.toLowerCase();
+  return (
+    lowered.includes("429") ||
+    lowered.includes("too many requests") ||
+    lowered.includes("quota exceeded") ||
+    lowered.includes("rate limit")
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withQuotaRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const msg = error instanceof Error ? error.message : String(error);
+      if (!isQuotaError(msg) || attempt === maxAttempts) {
+        throw error;
+      }
+      const retryAfterSeconds = extractRetryAfterSeconds(msg);
+      const waitMs = (retryAfterSeconds ?? attempt * 8) * 1000;
+      await sleep(waitMs);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 function extractRetryAfterSeconds(message: string): number | null {
   const m1 = message.match(/Please retry in\s+(\d+(?:\.\d+)?)s/i);
   if (m1?.[1]) return Math.max(1, Math.round(Number(m1[1])));
@@ -125,12 +159,7 @@ function extractRetryAfterSeconds(message: string): number | null {
 
 function throwUserFacingGeminiError(lastError: unknown): never {
   const msg = lastError instanceof Error ? lastError.message : String(lastError);
-  const lowered = msg.toLowerCase();
-  const isQuota =
-    lowered.includes("429") ||
-    lowered.includes("too many requests") ||
-    lowered.includes("quota exceeded") ||
-    lowered.includes("rate limit");
+  const isQuota = isQuotaError(msg);
 
   if (isQuota) {
     const retry = extractRetryAfterSeconds(msg);
@@ -162,7 +191,7 @@ async function generateJson(apiKey: string, prompt: string) {
   for (const modelName of candidates) {
     try {
       const model = modelConfig(genAI, modelName, true);
-      const res = await model.generateContent(prompt);
+      const res = await withQuotaRetry(() => model.generateContent(prompt));
       JSON.parse(res.response.text());
       return res.response.text();
     } catch (e) {
@@ -171,7 +200,7 @@ async function generateJson(apiKey: string, prompt: string) {
 
     try {
       const model = modelConfig(genAI, modelName, false);
-      const res = await model.generateContent(prompt);
+      const res = await withQuotaRetry(() => model.generateContent(prompt));
       const raw = res.response.text();
       const extracted = extractFirstJsonObject(raw);
       if (!extracted) return await forceJsonRetry(model, prompt);
@@ -183,6 +212,11 @@ async function generateJson(apiKey: string, prompt: string) {
   }
 
   throwUserFacingGeminiError(lastError);
+}
+
+function isSeoArticleLongEnough(article: string): boolean {
+  const sentenceCount = (article.match(/[.!?](?:\s|$)/g) || []).length;
+  return article.length >= 1400 && sentenceCount >= 8;
 }
 
 function htmlToMarkdownish(input: string) {
@@ -364,6 +398,7 @@ export async function POST(req: Request) {
     const kind = body?.kind;
     const video = body?.video;
     const transcript = typeof body?.transcript === "string" ? body.transcript.trim() : "";
+    const additionalInstructions = typeof body?.additionalInstructions === "string" ? body.additionalInstructions.trim() : "";
 
     if (kind !== "seo" && kind !== "linkedin") {
       return NextResponse.json({ error: "Paramètre kind invalide." }, { status: 400 });
@@ -388,6 +423,9 @@ Règles anti-hallucination (strictes):
     const previousSeo = body?.previous?.seoArticle?.slice(0, 2500) ?? "";
     const previousCaption = body?.previous?.linkedinCaption?.slice(0, 1500) ?? "";
     const previousSlides = body?.previous?.linkedinSlidesText?.slice(0, 2500) ?? "";
+    const extraGuidance = additionalInstructions
+      ? `\nInstructions supplémentaires utilisateur:\n${additionalInstructions}\n`
+      : "";
 
     const prompt =
       kind === "seo"
@@ -400,6 +438,7 @@ ${EXTIA_CONTEXT}
 ${SEO_ARTICLE_STRUCTURE_FR}
 
 ${antiHallucination}
+${extraGuidance}
 
 Source:
 - URL: ${video.url}
@@ -426,6 +465,7 @@ Style LinkedIn Extia:
 ${EXTIA_LINKEDIN_STYLE_GUIDE}
 
 ${antiHallucination}
+${extraGuidance}
 
 Source:
 - URL: ${video.url}
@@ -463,9 +503,25 @@ Génère STRICTEMENT un JSON valide (pas de markdown) avec:
     const parsed = JSON.parse(raw) as any;
 
     if (kind === "seo") {
-      const seo = typeof parsed?.seoArticle === "string" ? normalizeSeoArticle(parsed.seoArticle) : "";
-      if (!seo) {
-        return NextResponse.json({ error: "Réponse IA incomplète (article SEO manquant)." }, { status: 500 });
+      let seo = typeof parsed?.seoArticle === "string" ? normalizeSeoArticle(parsed.seoArticle) : "";
+      if (!seo || !isSeoArticleLongEnough(seo)) {
+        // Relance ciblée: on garde le même contexte mais on force la longueur minimale.
+        const retryPrompt = `${prompt}
+
+IMPORTANT:
+- L'article "seoArticle" doit faire 550 a 700 mots minimum.
+- Ajoute des details concretes et des transitions; ne fais pas une version courte.
+- Garde strictement le format JSON demandé.`;
+        const retryRaw = await generateJson(apiKey, retryPrompt);
+        const retryParsed = JSON.parse(retryRaw) as any;
+        seo = typeof retryParsed?.seoArticle === "string" ? normalizeSeoArticle(retryParsed.seoArticle) : "";
+      }
+
+      if (!seo || !isSeoArticleLongEnough(seo)) {
+        return NextResponse.json(
+          { error: "Réponse IA incomplète (article SEO trop court). Relance la génération." },
+          { status: 500 },
+        );
       }
       return NextResponse.json({ seoArticle: seo });
     }

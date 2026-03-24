@@ -7,6 +7,7 @@ import { SEO_ARTICLE_STRUCTURE_FR } from "@/lib/seoArticlePrompt";
 
 type ProcessRequest = {
   url?: string;
+  additionalInstructions?: string;
 };
 
 function extractRetryAfterSeconds(message: string): number | null {
@@ -17,14 +18,42 @@ function extractRetryAfterSeconds(message: string): number | null {
   return null;
 }
 
-function throwUserFacingGeminiError(lastError: unknown, candidates: string[]): never {
-  const msg = lastError instanceof Error ? lastError.message : String(lastError);
-  const lowered = msg.toLowerCase();
-  const isQuota =
+function isQuotaError(message: string): boolean {
+  const lowered = message.toLowerCase();
+  return (
     lowered.includes("429") ||
     lowered.includes("too many requests") ||
     lowered.includes("quota exceeded") ||
-    lowered.includes("rate limit");
+    lowered.includes("rate limit")
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withQuotaRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const msg = error instanceof Error ? error.message : String(error);
+      if (!isQuotaError(msg) || attempt === maxAttempts) {
+        throw error;
+      }
+      const retryAfterSeconds = extractRetryAfterSeconds(msg);
+      const waitMs = (retryAfterSeconds ?? attempt * 8) * 1000;
+      await sleep(waitMs);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function throwUserFacingGeminiError(lastError: unknown, candidates: string[]): never {
+  const msg = lastError instanceof Error ? lastError.message : String(lastError);
+  const isQuota = isQuotaError(msg);
 
   if (isQuota) {
     const retry = extractRetryAfterSeconds(msg);
@@ -172,6 +201,7 @@ async function generateWithGemini(input: {
   videoTitle: string;
   channelName: string;
   transcript: string;
+  additionalInstructions?: string;
 }): Promise<{
   ideas: string[];
   seoArticle: string;
@@ -276,7 +306,7 @@ async function generateWithGemini(input: {
     promptText: string,
   ): Promise<any> {
     const retryPrompt = `${promptText}\n\nIMPORTANT: Réponds UNIQUEMENT avec un objet JSON valide. Aucun texte avant/après.`;
-    const retryRes = await model.generateContent(retryPrompt);
+    const retryRes = await withQuotaRetry(() => model.generateContent(retryPrompt));
     const retryText = retryRes.response.text();
     const extracted = extractFirstJsonObject(retryText);
     if (!extracted) {
@@ -311,7 +341,7 @@ async function generateWithGemini(input: {
       // 1) Essai avec réponse JSON forcée (quand supporté)
       try {
         const model = modelConfig(modelName, true);
-        const res = await model.generateContent(prompt);
+        const res = await withQuotaRetry(() => model.generateContent(prompt));
         const text = res.response.text();
         // Valide rapidement que c'est du JSON; sinon on retentera sans forcing
         JSON.parse(text);
@@ -323,7 +353,7 @@ async function generateWithGemini(input: {
       // 2) Essai sans responseMimeType (plus compatible), on extrait le 1er objet JSON
       try {
         const model = modelConfig(modelName, false);
-        const res = await model.generateContent(prompt);
+        const res = await withQuotaRetry(() => model.generateContent(prompt));
         const text = res.response.text();
         const extracted = extractFirstJsonObject(text);
         if (!extracted) return await forceJsonRetry(model, prompt);
@@ -569,6 +599,8 @@ ${EXTIA_LINKEDIN_STYLE_GUIDE}
 
 ${LINKEDIN_CAROUSEL_SLIDES_PROMPT}
 
+${input.additionalInstructions?.trim() ? `Instructions supplémentaires utilisateur:\n${input.additionalInstructions.trim()}\n` : ""}
+
 Source:
 - URL: ${input.videoUrl}
 - Titre: ${input.videoTitle}
@@ -641,6 +673,7 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as ProcessRequest;
     const url = typeof body?.url === "string" ? body.url.trim() : "";
+    const additionalInstructions = typeof body?.additionalInstructions === "string" ? body.additionalInstructions.trim() : "";
     if (!url) {
       return NextResponse.json({ error: "URL manquante." }, { status: 400 });
     }
@@ -669,6 +702,7 @@ export async function POST(req: Request) {
       videoTitle: oembed.title,
       channelName,
       transcript,
+      additionalInstructions,
     });
 
     return NextResponse.json({

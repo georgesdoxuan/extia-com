@@ -15,14 +15,42 @@ function extractRetryAfterSeconds(message: string): number | null {
   return null;
 }
 
-function asUserFacingGeminiError(lastError: unknown, candidates: string[]): Error {
-  const msg = lastError instanceof Error ? lastError.message : String(lastError);
-  const lowered = msg.toLowerCase();
-  const isQuota =
+function isQuotaError(message: string): boolean {
+  const lowered = message.toLowerCase();
+  return (
     lowered.includes("429") ||
     lowered.includes("too many requests") ||
     lowered.includes("quota exceeded") ||
-    lowered.includes("rate limit");
+    lowered.includes("rate limit")
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withQuotaRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const msg = error instanceof Error ? error.message : String(error);
+      if (!isQuotaError(msg) || attempt === maxAttempts) {
+        throw error;
+      }
+      const retryAfterSeconds = extractRetryAfterSeconds(msg);
+      const waitMs = (retryAfterSeconds ?? attempt * 8) * 1000;
+      await sleep(waitMs);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function asUserFacingGeminiError(lastError: unknown, candidates: string[]): Error {
+  const msg = lastError instanceof Error ? lastError.message : String(lastError);
+  const isQuota = isQuotaError(msg);
 
   if (isQuota) {
     const retry = extractRetryAfterSeconds(msg);
@@ -94,9 +122,22 @@ function extractFirstJsonObject(text: string): string | null {
   return parseIfJsonObject(extracted) ? extracted : null;
 }
 
+function looksLikeSeoPrompt(prompt: string): boolean {
+  return /"seoArticle"\s*:/.test(prompt);
+}
+
+function looksLikeCompleteSeoArticle(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 1400) return false;
+  const lines = t.split("\n").map((x) => x.trim()).filter(Boolean);
+  if (lines.length < 6) return false;
+  const sentenceCount = (t.match(/[.!?](?:\s|$)/g) || []).length;
+  return sentenceCount >= 8;
+}
+
 async function forceJsonRetry(model: ReturnType<GoogleGenerativeAI["getGenerativeModel"]>, prompt: string): Promise<string> {
   const retryPrompt = `${prompt}\n\nIMPORTANT: Réponds UNIQUEMENT avec un objet JSON valide. Aucun texte avant/après.`;
-  const retryRes = await model.generateContent(retryPrompt);
+  const retryRes = await withQuotaRetry(() => model.generateContent(retryPrompt));
   const retryText = retryRes.response.text();
   const extracted = extractFirstJsonObject(retryText);
   if (!extracted) {
@@ -162,11 +203,13 @@ export async function generateGeminiJson(prompt: string, maxOutputTokens = 2048)
   }
 
   let lastError: unknown = null;
+  let lastRawText = "";
   for (const modelName of candidates) {
     try {
       const model = modelConfig(modelName, true);
-      const res = await model.generateContent(prompt);
+      const res = await withQuotaRetry(() => model.generateContent(prompt));
       const text = res.response.text();
+      lastRawText = text || lastRawText;
       JSON.parse(text);
       return text;
     } catch (e) {
@@ -175,17 +218,26 @@ export async function generateGeminiJson(prompt: string, maxOutputTokens = 2048)
 
     try {
       const model = modelConfig(modelName, false);
-      const res = await model.generateContent(prompt);
+      const res = await withQuotaRetry(() => model.generateContent(prompt));
       const text = res.response.text();
+      lastRawText = text || lastRawText;
       const extracted = extractFirstJsonObject(text);
       if (!extracted) {
-        return await forceJsonRetry(model, prompt);
+        const retried = await forceJsonRetry(model, prompt);
+        lastRawText = retried || lastRawText;
+        return retried;
       }
       JSON.parse(extracted);
       return extracted;
     } catch (e) {
       lastError = e;
     }
+  }
+
+  // Fallback ciblé SEO:
+  // si Gemini renvoie du texte article sans enveloppe JSON, on évite le hard fail.
+  if (looksLikeSeoPrompt(prompt) && looksLikeCompleteSeoArticle(lastRawText)) {
+    return JSON.stringify({ seoArticle: lastRawText.trim() });
   }
 
   throw asUserFacingGeminiError(lastError, candidates);

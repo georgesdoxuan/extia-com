@@ -12,6 +12,7 @@ type Body = {
   part?: "ideas" | "seo" | "linkedin";
   video?: VideoMeta;
   transcript?: string;
+  additionalInstructions?: string;
 };
 
 function baseSource(video: VideoMeta, condensed: string) {
@@ -32,6 +33,7 @@ export async function POST(req: Request) {
     const part = body?.part;
     const video = body?.video;
     const transcript = typeof body?.transcript === "string" ? body.transcript : "";
+    const additionalInstructions = typeof body?.additionalInstructions === "string" ? body.additionalInstructions.trim() : "";
 
     if (part !== "ideas" && part !== "seo" && part !== "linkedin") {
       return NextResponse.json({ error: "part invalide (ideas | seo | linkedin)." }, { status: 400 });
@@ -45,6 +47,9 @@ export async function POST(req: Request) {
 
     const condensed = condenseTranscriptForAi(transcript);
     const source = baseSource(video, condensed);
+    const extraGuidance = additionalInstructions
+      ? `\nInstructions supplémentaires fournies par l’utilisateur:\n${additionalInstructions}\n`
+      : "";
 
     if (part === "ideas") {
       const prompt = `
@@ -54,6 +59,7 @@ Contexte Extia:
 ${EXTIA_CONTEXT}
 
 ${source}
+${extraGuidance}
 
 Génère STRICTEMENT un JSON valide (pas de markdown), schéma:
 { "ideas": ["...", "...", "...", "...", "..."] }
@@ -84,6 +90,7 @@ ${EXTIA_CONTEXT}
 ${SEO_ARTICLE_STRUCTURE_FR}
 
 ${source}
+${extraGuidance}
 
 Génère STRICTEMENT un objet JSON valide (sans balise de code ni enveloppe markdown autour du JSON), schéma:
 { "seoArticle": "..." }
@@ -96,8 +103,12 @@ Ne pas inventer de faits hors transcript + contexte.
       const parsed = JSON.parse(text) as { seoArticle?: unknown };
       const raw = typeof parsed?.seoArticle === "string" ? parsed.seoArticle : "";
       const seoArticle = normalizeSeoArticle(raw);
-      if (!seoArticle) {
-        return NextResponse.json({ error: "Réponse IA incomplète (article SEO manquant)." }, { status: 502 });
+      const sentenceCount = (seoArticle.match(/[.!?](?:\s|$)/g) || []).length;
+      if (!seoArticle || seoArticle.length < 1400 || sentenceCount < 8) {
+        return NextResponse.json(
+          { error: "Réponse IA incomplète (article SEO trop court). Relance la génération." },
+          { status: 502 },
+        );
       }
       return NextResponse.json({ seoArticle });
     }
@@ -114,6 +125,7 @@ ${EXTIA_LINKEDIN_STYLE_GUIDE}
 ${LINKEDIN_CAROUSEL_SLIDES_PROMPT}
 
 ${source}
+${extraGuidance}
 
 Génère STRICTEMENT un JSON valide (pas de markdown), schéma:
 {

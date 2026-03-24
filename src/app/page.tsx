@@ -147,6 +147,7 @@ type ApiResponse = {
   error?: string;
   video?: { id: string; url: string; title: string; channelName: string };
   transcript?: string;
+  additionalInstructions?: string;
   ideas?: string[];
   seoArticle?: string;
   linkedinCarousel?: {
@@ -287,6 +288,7 @@ function loadingWaitPhrase(step: string | null): { title: string; detail: string
 
 function MainWorkspace() {
   const [url, setUrl] = React.useState("");
+  const [additionalInstructions, setAdditionalInstructions] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [progressLabel, setProgressLabel] = React.useState<string | null>(null);
   const [regenSeoLoading, setRegenSeoLoading] = React.useState(false);
@@ -315,6 +317,7 @@ function MainWorkspace() {
   async function run(u: string) {
     const trimmed = u.trim();
     if (!trimmed) return;
+    const extra = additionalInstructions.trim();
     processAbortRef.current?.abort();
     const controller = new AbortController();
     processAbortRef.current = controller;
@@ -344,6 +347,7 @@ function MainWorkspace() {
           part: "ideas",
           video: videoPayload(jT.video),
           transcript: jT.transcript,
+          additionalInstructions: extra,
         }),
         signal: controller.signal,
       });
@@ -360,6 +364,7 @@ function MainWorkspace() {
           part: "seo",
           video: videoPayload(jT.video),
           transcript: jT.transcript,
+          additionalInstructions: extra,
         }),
         signal: controller.signal,
       });
@@ -376,6 +381,7 @@ function MainWorkspace() {
           part: "linkedin",
           video: videoPayload(jT.video),
           transcript: jT.transcript,
+          additionalInstructions: extra,
         }),
         signal: controller.signal,
       });
@@ -390,6 +396,7 @@ function MainWorkspace() {
       setData({
         video: jT.video,
         transcript: jT.transcript,
+        additionalInstructions: extra,
         ideas: jI.ideas,
         seoArticle: jS.seoArticle,
         linkedinCarousel: jL.linkedinCarousel,
@@ -435,6 +442,7 @@ function MainWorkspace() {
           kind: "seo",
           video: { url: data.video.url, title: data.video.title, channelName: data.video.channelName },
           transcript: data.transcript,
+          additionalInstructions: data.additionalInstructions || "",
           previous: { seoArticle: data.seoArticle || "" },
         }),
       });
@@ -461,6 +469,7 @@ function MainWorkspace() {
           kind: "linkedin",
           video: { url: data.video.url, title: data.video.title, channelName: data.video.channelName },
           transcript: data.transcript,
+          additionalInstructions: data.additionalInstructions || "",
           previous: {
             linkedinCaption: data.linkedinCarousel.caption,
             linkedinSlidesText: prevSlidesText,
@@ -503,7 +512,14 @@ function MainWorkspace() {
                 placeholder="Sélectionner ou coller l’URL…"
                 className="mb-3 w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2.5 text-sm outline-none ring-sky-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-200"
               />
-              <p className="mb-4 text-xs text-gray-500">Glisser-déposer l’URL fonctionne aussi.</p>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700">Instructions supplémentaires (optionnel)</label>
+              <textarea
+                value={additionalInstructions}
+                onChange={(e) => setAdditionalInstructions(e.target.value)}
+                placeholder="Ajoute du contexte: cible, angle, niveau technique, ton, points à couvrir, etc."
+                className="mb-3 h-24 w-full resize-y rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2.5 text-sm outline-none ring-sky-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-200"
+              />
+              <p className="mb-4 text-xs text-gray-500">Glisser-déposer l’URL fonctionne aussi. Les instructions guident la génération.</p>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
